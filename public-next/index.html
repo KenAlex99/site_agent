@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AIOps Monitoring Canvas</title>
+  <link rel="stylesheet" href="/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/vendor/chart.umd.js"></script>
+  <script defer src="/vendor/uPlot.iife.min.js"></script>
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <aside class="rail" aria-label="模块导航">
+    <a class="brand" href="/" aria-label="AIOps 首页"><span>AO</span></a>
+    <nav><button class="nav-item active" type="button"><span>01</span>态势</button><button class="nav-item" type="button" disabled><span>02</span>拓扑</button><button class="nav-item" type="button" disabled><span>03</span>策略</button></nav>
+    <div class="rail-foot"><i id="provider-dot"></i><span>LibreNMS<br>Provider</span></div>
+  </aside>
+
+  <main>
+    <header class="masthead reveal">
+      <div><p class="kicker">MONITORING / OBSERVABILITY CANVAS</p><h1>运行态势<span>，解耦呈现。</span></h1><p class="lede">LibreNMS 提供事实，中间件统一语义，渲染器负责表达。</p></div>
+      <div class="header-actions"><span id="updated-at">等待首次同步</span><button id="refresh" type="button"><i></i>立即同步</button></div>
+    </header>
+
+    <section id="global-error" class="global-error" hidden role="alert"></section>
+
+    <section class="metrics reveal delay-1" aria-label="核心指标">
+      <article><div class="metric-head"><span>设备总数</span><small>DEVICES</small></div><strong id="device-total">—</strong><p><b id="device-up">—</b> 在线运行</p></article>
+      <article><div class="metric-head"><span>离线设备</span><small>DOWN</small></div><strong id="device-down">—</strong><p>由中间件统一状态</p></article>
+      <article><div class="metric-head"><span>活动告警</span><small>ALERTS</small></div><strong id="alert-active">—</strong><p><b id="alert-critical">—</b> 严重等级</p></article>
+      <article class="provider-card"><div class="metric-head"><span>数据源</span><small>PROVIDER</small></div><strong id="provider-name">LibreNMS</strong><p id="provider-state">连接检查中</p></article>
+    </section>
+
+    <section class="dashboard-grid reveal delay-2">
+      <article class="panel availability-panel">
+        <div class="panel-head"><div><p class="panel-index">CHART.JS / 01</p><h2>设备可用性</h2></div><span class="engine-badge">Chart.js</span></div>
+        <div id="availability-chart" class="chart chart-square" aria-live="polite"><div class="skeleton"></div></div>
+      </article>
+      <article class="panel alerts-panel">
+        <div class="panel-head"><div><p class="panel-index">CHART.JS / 02</p><h2>告警等级分布</h2></div><span class="engine-badge">Chart.js</span></div>
+        <div id="severity-chart" class="chart chart-square" aria-live="polite"><div class="skeleton"></div></div>
+      </article>
+      <article class="panel traffic-panel">
+        <div class="panel-head wide"><div><p class="panel-index">UPLOT / LIVE WINDOW</p><h2>端口实时流量</h2></div><div class="selectors"><label>设备<select id="devices"><option>读取中…</option></select></label><label>端口<select id="ports" disabled><option>选择设备</option></select></label></div><span class="engine-badge uplot">uPlot</span></div>
+        <div class="traffic-meta"><span><i class="rx"></i>入方向 <b id="rx-value">—</b></span><span><i class="tx"></i>出方向 <b id="tx-value">—</b></span><small>每 10 秒采样 · 内存滚动窗口</small></div>
+        <div id="traffic-chart" class="chart chart-wide" aria-live="polite"><div class="empty-state">选择可用端口后开始采样</div></div>
+      </article>
+      <article class="panel snapshot-panel">
+        <div class="panel-head"><div><p class="panel-index">CHART.JS / 03</p><h2>端口速率快照</h2></div><span class="engine-badge">Chart.js</span></div>
+        <div id="snapshot-chart" class="chart chart-square" aria-live="polite"><div class="empty-state">等待端口数据</div></div>
+      </article>
+      <article class="panel alert-list-panel">
+        <div class="panel-head"><div><p class="panel-index">NORMALIZED ALERT STREAM</p><h2>近期告警</h2></div><span id="alert-count" class="count-badge">0</span></div>
+        <div id="alert-list" class="alert-list"><div class="skeleton rows"></div></div>
+      </article>
+    </section>
+
+    <footer><span>API CONTRACT <b>monitoring.query.v1</b></span><span>DATA SOURCE <b>LibreNMS REST</b></span><span>NO DATABASE ACCESS</span></footer>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

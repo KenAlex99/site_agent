@@ -1,0 +1,33 @@
+# Real environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencies and generated files
+node_modules/
+coverage/
+dist/
+*.log
+
+# Secrets
+*.key
+*.pem
+id_rsa*
+*credential*
+*secret*
+
+# Archives and backups
+*.tar.gz
+*.tgz
+*.zip
+backups/
+deploy/
+
+# Local agent configuration
+.claude/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+npm-debug.log*

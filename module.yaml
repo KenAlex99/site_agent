@@ -1,0 +1,50 @@
+apiVersion: aiops.platform/v1
+kind: Module
+metadata:
+  id: monitoring-visualization
+  name: 统一监测
+  description: 通过可替换 Provider 和 Renderer 展示标准化监控与告警数据
+  version: 0.4.0
+  vendor: internal
+compatibility:
+  platform: ">=0.1.0 <2.0.0"
+runtime:
+  serviceName: monitoring-visualization-service
+  serviceUrl: http://127.0.0.1:4310
+  apiBasePath: /api/v1/monitoring
+  healthEndpoint: /api/v1/monitoring/health
+provides:
+  capabilities:
+    - monitoring.device.query.v1
+    - monitoring.port.query.v1
+    - monitoring.alert.query.v1
+    - monitoring.timeseries.query.v1
+    - monitoring.resource.query.v1
+    - monitoring.port.ranking.v1
+    - monitoring.arp.query.v1
+    - monitoring.eventlog.query.v1
+    - monitoring.graph.proxy.v1
+    - monitoring.site-agent.ingest.v1
+    - monitoring.cloud-snapshot.query.v1
+requires:
+  mandatory: []
+  optional:
+    - platform.authentication.v1
+frontend:
+  entry: http://127.0.0.1:4310/
+  baseRoute: /monitoring
+  menu:
+    id: monitoring
+    label: 统一监测
+    route: /monitoring
+    permission: monitoring.dashboard.read
+    order: 210
+permissions:
+  - monitoring.dashboard.read
+  - monitoring.device.read
+  - monitoring.port.read
+  - monitoring.resource.read
+  - monitoring.eventlog.read
+  - monitoring.alert.read
+contracts:
+  openapi: /contracts/openapi.yaml

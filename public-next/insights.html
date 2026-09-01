@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AIOps 资源与端口洞察</title>
+  <link rel="stylesheet" href="/vendor/uPlot.min.css">
+  <link rel="stylesheet" href="/insights.css">
+  <script defer src="/vendor/chart.umd.js"></script>
+  <script defer src="/vendor/uPlot.iife.min.js"></script>
+</head>
+<body>
+  <aside class="rail">
+    <a class="brand" href="/">AO</a>
+    <nav aria-label="功能导航">
+      <a href="#overview"><span>01</span>总览</a>
+      <a href="#resources"><span>02</span>资源</a>
+      <a href="#ranking"><span>03</span>排行</a>
+      <a href="#port-detail"><span>04</span>端口</a>
+    </nav>
+    <div class="provider"><i id="provider-dot"></i><span id="provider-label">LibreNMS</span></div>
+  </aside>
+
+  <main>
+    <header class="hero" id="overview">
+      <div>
+        <p class="eyebrow">AIOPS / RESOURCE OBSERVATORY</p>
+        <h1>资源与端口<span>，统一洞察。</span></h1>
+        <p>LibreNMS 保存事实，中间件统一接口，Chart.js 与 uPlot 负责呈现。</p>
+      </div>
+      <div class="hero-actions"><small id="updated-at">等待同步</small><button id="refresh" type="button">立即同步</button></div>
+    </header>
+
+    <div id="global-error" class="notice error" hidden role="alert"></div>
+
+    <section class="metrics" aria-label="核心指标">
+      <article><span>设备</span><strong id="device-total">—</strong><small><b id="device-up">—</b> 在线</small></article>
+      <article><span>离线</span><strong id="device-down">—</strong><small>统一状态口径</small></article>
+      <article><span>活动告警</span><strong id="alert-active">—</strong><small><b id="alert-critical">—</b> 严重</small></article>
+      <article><span>端口样本</span><strong id="port-total">—</strong><small>全局排行数据</small></article>
+    </section>
+
+    <section class="panel section-panel" id="resources">
+      <div class="panel-title">
+        <div><p>DEVICE / POINT-IN-TIME</p><h2>指定设备资源状态</h2></div>
+        <span class="tag">RRD / uPlot</span>
+      </div>
+      <div class="toolbar resource-toolbar">
+        <label>设备<select id="resource-device"><option value="">读取中…</option></select></label>
+        <label>资源<select id="resource-type"><option value="">请选择设备</option></select></label>
+        <label>开始时间<input id="from-time" type="datetime-local"></label>
+        <label>结束时间<input id="to-time" type="datetime-local"></label>
+        <button id="apply-resource-time" type="button">应用时间</button>
+      </div>
+      <div class="resource-layout">
+        <div>
+          <div id="availability" class="availability-strip"><span class="muted">读取可用率…</span></div>
+          <div id="resource-graph" class="chart resource-chart empty-state">请选择设备和资源</div>
+        </div>
+        <div>
+          <h3>当前传感器状态</h3>
+          <div id="sensor-list" class="sensor-list"><div class="empty-state">选择健康资源后显示当前值</div></div>
+        </div>
+      </div>
+      <p class="hint">历史指标由中间件从LibreNMS RRD安全导出为JSON，再由浏览器实时绘图；当前传感器值来自标准化API。时间精度取决于LibreNMS轮询周期。</p>
+    </section>
+
+    <section class="panel section-panel" id="ranking">
+      <div class="panel-title">
+        <div><p>ALL PORTS / RANKING</p><h2>全设备端口资源排行</h2></div>
+        <span class="tag chartjs">Chart.js</span>
+      </div>
+      <div class="toolbar">
+        <label>排行指标<select id="ranking-metric"><option value="traffic">总流量</option><option value="utilization">利用率</option><option value="errors">错误数</option><option value="discards">丢弃数</option></select></label>
+        <label>端口状态<select id="ranking-status"><option value="all">全部</option><option value="up">在线</option><option value="down">离线</option></select></label>
+        <label>显示数量<select id="ranking-limit"><option>10</option><option selected>20</option><option>50</option></select></label>
+      </div>
+      <div class="ranking-layout">
+        <div id="ranking-chart" class="chart"><div class="skeleton"></div></div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>设备 / 端口</th><th>状态</th><th id="ranking-value-label">总流量</th></tr></thead><tbody id="ranking-rows"><tr><td colspan="4">读取中…</td></tr></tbody></table></div>
+      </div>
+    </section>
+
+    <section class="panel section-panel" id="port-detail">
+      <div class="panel-title">
+        <div><p>PORT / DEEP DIVE</p><h2>指定端口监测</h2></div>
+        <span class="tag uplot">RRD / uPlot</span>
+      </div>
+      <div class="toolbar">
+        <label>设备<select id="port-device"><option value="">读取中…</option></select></label>
+        <label>端口<select id="port-select"><option value="">请选择设备</option></select></label>
+        <label>历史范围<select id="port-range"><option value="-6h">最近6小时</option><option value="-24h" selected>最近24小时</option><option value="-7d">最近7天</option><option value="-30d">最近30天</option></select></label>
+      </div>
+
+      <div class="live-meta"><span>端口状态 <b id="live-state">等待选择</b></span><span>RX <b id="live-rx">—</b></span><span>TX <b id="live-tx">—</b></span><small>页面每30秒刷新；实际数据更新周期由LibreNMS轮询决定</small></div>
+      <div class="port-graphs">
+        <article><h3>最近1小时流量</h3><div id="live-chart" class="chart live-chart empty-state">请选择端口</div></article>
+        <article><h3>所选范围历史流量</h3><div id="port-history" class="chart history-chart empty-state">请选择端口</div></article>
+      </div>
+
+      <div class="detail-grid">
+        <article><h3>ARP Table</h3><div class="table-wrap compact"><table><thead><tr><th>IP地址</th><th>MAC地址</th><th>上下文</th></tr></thead><tbody id="arp-rows"><tr><td colspan="3">请选择端口</td></tr></tbody></table></div></article>
+        <article><h3>Eventlog</h3><div id="event-list" class="event-list"><div class="empty-state">请选择设备</div></div></article>
+      </div>
+    </section>
+
+    <footer><span>API <b>/api/v1/monitoring/*</b></span><span>DATABASE <b>NO DIRECT ACCESS</b></span><span>NOTES <b>OUT OF SCOPE</b></span></footer>
+  </main>
+  <script type="module" src="/insights.js"></script>
+</body>
+</html>

@@ -1,0 +1,303 @@
+openapi: 3.1.0
+info:
+  title: AIOps Monitoring Middleware API
+  version: 1.2.0
+  description: Provider-neutral monitoring API plus authenticated site-agent snapshot ingestion. Implementations must not expose LibreNMS payloads, tokens, database access, or renderer-specific options.
+servers:
+  - url: http://127.0.0.1:4310
+paths:
+  /api/v1/site-agent/batches:
+    post:
+      operationId: ingestSiteAgentBatch
+      summary: Upload a snapshot using an agent identity bound by the server
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteAgentSnapshotBatch' }
+      responses:
+        '202': { description: New batch accepted }
+        '200': { description: Duplicate batch accepted idempotently }
+        '400': { description: Invalid or non-whitelisted batch fields }
+        '401': { description: Missing or invalid agent credential }
+        '403': { description: Payload identity conflicts with authenticated source }
+        '409': { description: Batch or sequence conflict }
+        '413': { description: Batch exceeds 2 MiB }
+  /api/v1/cloud/monitoring/sources:
+    get:
+      operationId: listCloudMonitoringSources
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Sources restricted to the viewer credential tenant set }
+        '401': { description: Missing or invalid platform viewer credential }
+  /api/v1/cloud/monitoring/sources/{sourceId}/snapshot:
+    get:
+      operationId: getCloudMonitoringSnapshot
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: sourceId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: Latest source snapshot with global identities and freshness }
+        '401': { description: Missing or invalid platform viewer credential }
+        '404': { description: Source absent or hidden by tenant isolation }
+  /api/v1/monitoring/health:
+    get:
+      operationId: getMonitoringHealth
+      responses:
+        '200': { description: Provider configuration and connectivity }
+  /api/v1/monitoring/overview:
+    get:
+      operationId: getMonitoringOverview
+      responses:
+        '200': { description: Normalized device and alert summary }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/v1/monitoring/devices:
+    get:
+      operationId: listMonitoringDevices
+      responses:
+        '200': { description: Normalized devices }
+  /api/v1/monitoring/devices/{deviceId}/ports:
+    get:
+      operationId: listMonitoringPorts
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema: { type: string, maxLength: 160 }
+      responses:
+        '200': { description: Normalized ports with rates in bps }
+        '400': { description: Invalid device ID }
+  /api/v1/monitoring/alerts:
+    get:
+      operationId: listMonitoringAlerts
+      parameters:
+        - in: query
+          name: state
+          schema: { type: string, enum: [all, active, ack, unack, open], default: all }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200': { description: Normalized alerts }
+  /api/v1/monitoring/series/port-traffic:
+    get:
+      operationId: queryPortTrafficSeries
+      parameters:
+        - in: query
+          name: deviceId
+          required: true
+          schema: { type: string, maxLength: 160 }
+        - in: query
+          name: portId
+          required: true
+          schema: { type: string, maxLength: 160 }
+      responses:
+        '200':
+          description: Renderer-neutral rolling traffic series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeSeriesFrame' }
+        '404': { description: Port not found }
+  /api/v1/monitoring/ports:
+    get:
+      operationId: listAllMonitoringPorts
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [all, up, down], default: all } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: sort, schema: { type: string, enum: [traffic, utilization, errors, discards], default: traffic } }
+        - { in: query, name: order, schema: { type: string, enum: [asc, desc], default: desc } }
+      responses:
+        '200': { description: Paginated normalized ports across all devices }
+  /api/v1/monitoring/ports/rankings:
+    get:
+      operationId: rankMonitoringPorts
+      parameters:
+        - { in: query, name: metric, schema: { type: string, enum: [traffic, utilization, errors, discards], default: traffic } }
+        - { in: query, name: status, schema: { type: string, enum: [all, up, down], default: all } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200': { description: Ranked ports with traffic, utilization, errors and discards }
+        '400': { description: Invalid ranking metric }
+  /api/v1/monitoring/devices/{deviceId}/resources:
+    get:
+      operationId: listDeviceMonitoringResources
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: Available device and health graph descriptors plus availability windows }
+  /api/v1/monitoring/devices/{deviceId}/resources/{resourceType}/sensors:
+    get:
+      operationId: listDeviceResourceSensors
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: resourceType, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_-]+$' } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 40 } }
+      responses:
+        '200': { description: Normalized current sensor values and thresholds }
+  /api/v1/monitoring/devices/{deviceId}/resources/{resourceType}/series:
+    get:
+      operationId: queryDeviceResourceSeries
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: resourceType, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_-]+$' } }
+        - { in: query, name: from, schema: { type: string, default: '-24h' } }
+        - { in: query, name: to, schema: { type: string, default: now } }
+        - { in: query, name: maxPoints, schema: { type: integer, minimum: 60, maximum: 480, default: 360 } }
+      responses:
+        '200':
+          description: Renderer-neutral resource history exported from LibreNMS RRD
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/TimeSeriesFrame' } }
+        '422': { description: Resource type cannot be represented as a standardized series }
+  /api/v1/monitoring/devices/{deviceId}/ports/{portId}/series:
+    get:
+      operationId: queryPortHistorySeries
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: portId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: query, name: from, schema: { type: string, default: '-24h' } }
+        - { in: query, name: to, schema: { type: string, default: now } }
+        - { in: query, name: maxPoints, schema: { type: integer, minimum: 60, maximum: 480, default: 360 } }
+      responses:
+        '200':
+          description: Renderer-neutral RX and TX history exported from the port RRD
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/TimeSeriesFrame' } }
+  /api/v1/monitoring/devices/{deviceId}/graphs/{category}/{graphType}:
+    get:
+      operationId: getDeviceResourceGraph
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: category, required: true, schema: { type: string, enum: [device, health] } }
+        - { in: path, name: graphType, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_-]+$' } }
+        - { in: query, name: from, schema: { type: string, default: '-24h' } }
+        - { in: query, name: to, schema: { type: string, default: now } }
+        - { in: query, name: width, schema: { type: integer, minimum: 320, maximum: 2000, default: 1000 } }
+        - { in: query, name: height, schema: { type: integer, minimum: 160, maximum: 1000, default: 280 } }
+      responses:
+        '200':
+          description: LibreNMS graph proxied without exposing its URL or token
+          content:
+            image/png: { schema: { type: string, contentEncoding: binary } }
+  /api/v1/monitoring/devices/{deviceId}/ports/{portId}/graphs/{graphType}:
+    get:
+      operationId: getPortMonitoringGraph
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: portId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: graphType, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_-]+$' } }
+        - { in: query, name: from, schema: { type: string, default: '-24h' } }
+        - { in: query, name: to, schema: { type: string, default: now } }
+      responses:
+        '200':
+          description: Port graph proxied from LibreNMS
+          content:
+            image/png: { schema: { type: string, contentEncoding: binary } }
+  /api/v1/monitoring/devices/{deviceId}/ports/{portId}/arp:
+    get:
+      operationId: listPortArpEntries
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: path, name: portId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: Device ARP entries filtered by normalized port ID }
+  /api/v1/monitoring/devices/{deviceId}/events:
+    get:
+      operationId: listDeviceEventLog
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: query, name: from, schema: { type: string } }
+        - { in: query, name: to, schema: { type: string } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Normalized read-only LibreNMS event log }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    UpstreamError:
+      description: Provider unavailable; upstream response and credentials are never returned
+  schemas:
+    SiteAgentSnapshotBatch:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, batchId, sequence, kind, observedAt, devices, ports]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        batchId: { type: string, minLength: 1, maxLength: 160 }
+        sequence: { type: integer, minimum: 1 }
+        kind: { type: string, const: snapshot }
+        observedAt: { type: string, format: date-time }
+        sourceId: { type: string, description: Optional assertion; must equal authenticated source }
+        tenantId: { type: string, description: Optional assertion; never used as authorization input }
+        siteId: { type: string, description: Optional assertion; must equal authenticated site }
+        devices:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/SiteAgentDevice' }
+        ports:
+          type: array
+          maxItems: 5000
+          items: { $ref: '#/components/schemas/SiteAgentPort' }
+    SiteAgentDevice:
+      type: object
+      additionalProperties: false
+      required: [localDeviceId, name, status]
+      properties:
+        localDeviceId: { type: string, maxLength: 160 }
+        name: { type: string, maxLength: 255 }
+        hostname: { type: string, maxLength: 255 }
+        ip: { type: string }
+        status: { type: string, enum: [up, down, disabled, warning, unknown] }
+        os: { type: string, maxLength: 120 }
+        hardware: { type: string, maxLength: 255 }
+        location: { type: string, maxLength: 255 }
+        uptimeSeconds: { type: integer, minimum: 0 }
+        polledAt: { type: string, format: date-time }
+    SiteAgentPort:
+      type: object
+      additionalProperties: false
+      required: [localPortId, localDeviceId, name, status]
+      properties:
+        localPortId: { type: string, maxLength: 160 }
+        localDeviceId: { type: string, maxLength: 160 }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, maxLength: 500 }
+        group: { type: string, maxLength: 120 }
+        status: { type: string, enum: [up, down, disabled, warning, unknown] }
+        adminStatus: { type: string, enum: [up, down, disabled, warning, unknown] }
+        macAddress: { type: string }
+        speedBps: { type: number, minimum: 0 }
+        rxBps: { type: number, minimum: 0 }
+        txBps: { type: number, minimum: 0 }
+        errors: { type: integer, minimum: 0 }
+        discards: { type: integer, minimum: 0 }
+        polledAt: { type: string, format: date-time }
+    TimeSeriesFrame:
+      type: object
+      required: [id, title, unit, sampledAt, sampleMode, series]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        unit: { type: string }
+        sampledAt: { type: string, format: date-time }
+        sampleMode: { type: string }
+        series:
+          type: array
+          items:
+            type: object
+            required: [id, name, points]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              points:
+                type: array
+                items:
+                  type: array
+                  prefixItems: [{ type: integer }, { type: [number, 'null'] }]
+                  minItems: 2
+                  maxItems: 2
