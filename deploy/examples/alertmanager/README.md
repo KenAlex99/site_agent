@@ -2,7 +2,9 @@
 
 此目录是增值部署参考，不是基础监控页面的必需组件。启用后，LibreNMS 使用原生 **Alertmanager Transport** 把告警送给官方 Alertmanager；Alertmanager 完成分组、去重、静默和抑制，再由 Relay 实时上传事件，并每 60 秒上传活动告警快照。
 
-镜像固定为官方 `quay.io/prometheus/alertmanager:v0.33.1`。Relay 使用本仓库代码构建。管理端口仅映射到服务器回环地址，不直接暴露到局域网或公网。
+镜像固定为官方 `quay.io/prometheus/alertmanager:v0.33.1` 及已验证的多架构摘要 `sha256:9e0829…065d`。Relay 使用本仓库代码构建。管理端口仅映射到服务器回环地址，不直接暴露到局域网或公网。
+
+示例按单节点站点部署，使用 `--cluster.listen-address=` 禁用 Gossip 集群等待。以后改为 Alertmanager 高可用集群时，应删除该参数并补充明确的集群 peer 配置。
 
 ## 1. 准备
 

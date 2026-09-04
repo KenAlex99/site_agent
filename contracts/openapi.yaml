@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: AIOps Monitoring Middleware API
-  version: 1.3.0
-  description: Provider-neutral monitoring API plus authenticated site-agent snapshot ingestion. Implementations must not expose LibreNMS payloads, tokens, database access, or renderer-specific options.
+  version: 1.4.0
+  description: Provider-neutral monitoring API plus authenticated site-agent snapshot and alert ingestion. Implementations must not expose LibreNMS payloads, tokens, database access, or renderer-specific options.
 servers:
   - url: http://127.0.0.1:4310
 paths:
@@ -24,6 +24,42 @@ paths:
         '403': { description: Payload identity conflicts with authenticated source }
         '409': { description: Batch or sequence conflict }
         '413': { description: Batch exceeds 2 MiB }
+  /api/v1/site-agent/alert-events:
+    post:
+      operationId: ingestSiteAgentAlertEvents
+      summary: Upload one normalized Alertmanager Webhook delivery
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteAgentAlertEventBatch' }
+      responses:
+        '202': { description: New alert delivery accepted }
+        '200': { description: Duplicate delivery accepted idempotently }
+        '400': { description: Invalid, unknown or sensitive alert fields }
+        '401': { description: Missing or invalid agent credential }
+        '403': { description: Payload identity conflicts with authenticated source }
+        '409': { description: Delivery ID conflict }
+        '413': { description: Request exceeds 1 MiB }
+  /api/v1/site-agent/alert-snapshots:
+    post:
+      operationId: ingestSiteAgentAlertSnapshot
+      summary: Upload the complete active Alertmanager alert set
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteAgentAlertSnapshotBatch' }
+      responses:
+        '202': { description: New snapshot accepted, including an older unapplied sequence }
+        '200': { description: Duplicate snapshot accepted idempotently }
+        '400': { description: Invalid, unknown or sensitive alert fields }
+        '401': { description: Missing or invalid agent credential }
+        '403': { description: Payload identity conflicts with authenticated source }
+        '409': { description: Snapshot ID or sequence conflict }
+        '413': { description: Request exceeds 1 MiB }
   /api/v1/cloud/monitoring/sources:
     get:
       operationId: listCloudMonitoringSources
@@ -41,6 +77,27 @@ paths:
         '200': { description: Latest source snapshot with global identities and freshness }
         '401': { description: Missing or invalid platform viewer credential }
         '404': { description: Source absent or hidden by tenant isolation }
+  /api/v1/cloud/monitoring/sources/{sourceId}/alert-events:
+    get:
+      operationId: listCloudAlertEvents
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: sourceId, required: true, schema: { type: string, maxLength: 160 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        '200': { description: Recent normalized deliveries, newest first }
+        '401': { description: Missing or invalid platform viewer credential }
+        '404': { description: Source absent or hidden by tenant isolation }
+  /api/v1/cloud/monitoring/sources/{sourceId}/alerts:
+    get:
+      operationId: getCloudActiveAlertSnapshot
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: sourceId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200': { description: Latest complete active-alert snapshot with global alert keys }
+        '401': { description: Missing or invalid platform viewer credential }
+        '404': { description: Snapshot absent or hidden by tenant isolation }
   /api/v1/monitoring/health:
     get:
       operationId: getMonitoringHealth
@@ -457,6 +514,60 @@ components:
         errors: { type: integer, minimum: 0 }
         discards: { type: integer, minimum: 0 }
         polledAt: { type: string, format: date-time }
+    SiteAgentAlert:
+      type: object
+      additionalProperties: false
+      required: [fingerprint, status, startsAt, labels, annotations]
+      properties:
+        fingerprint: { type: string, minLength: 1, maxLength: 160 }
+        status: { type: string, enum: [firing, resolved, suppressed] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        labels:
+          type: object
+          minProperties: 1
+          maxProperties: 64
+          additionalProperties: { type: string, maxLength: 512 }
+        annotations:
+          type: object
+          maxProperties: 32
+          additionalProperties: { type: string, maxLength: 2000 }
+    SiteAgentAlertEventBatch:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, deliveryId, kind, observedAt, status, alerts]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        deliveryId: { type: string, minLength: 1, maxLength: 160 }
+        kind: { type: string, const: alert-events }
+        observedAt: { type: string, format: date-time }
+        status: { type: string, enum: [firing, resolved] }
+        groupKey: { type: string, maxLength: 512 }
+        receiver: { type: string, maxLength: 160 }
+        sourceId: { type: string, description: Optional assertion; must equal authenticated source }
+        tenantId: { type: string, description: Optional assertion; never used as authorization input }
+        siteId: { type: string, description: Optional assertion; must equal authenticated site }
+        alerts:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/SiteAgentAlert' }
+    SiteAgentAlertSnapshotBatch:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, snapshotId, sequence, kind, observedAt, alerts]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        snapshotId: { type: string, minLength: 1, maxLength: 160 }
+        sequence: { type: integer, minimum: 1 }
+        kind: { type: string, const: alert-snapshot }
+        observedAt: { type: string, format: date-time }
+        sourceId: { type: string, description: Optional assertion; must equal authenticated source }
+        tenantId: { type: string, description: Optional assertion; never used as authorization input }
+        siteId: { type: string, description: Optional assertion; must equal authenticated site }
+        alerts:
+          type: array
+          maxItems: 5000
+          items: { $ref: '#/components/schemas/SiteAgentAlert' }
     TimeSeriesFrame:
       type: object
       required: [id, title, unit, sampledAt, sampleMode, series]
