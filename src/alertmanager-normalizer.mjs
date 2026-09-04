@@ -17,6 +17,7 @@ export function normalizeAlertmanagerWebhook(input, { observedAt, deliveryId } =
   object(input, 'webhook');
   const status = enumValue(input.status, new Set(['firing', 'resolved']), 'webhook.status');
   const alerts = array(input.alerts, 'webhook.alerts', 100).map((alert, index) => normalizeWebhookAlert(alert, index));
+  if (alerts.length === 0) invalid('webhook.alerts must contain at least one alert');
   const normalizedObservedAt = rfc3339(observedAt, 'observedAt');
   return normalizeAlertEventBatch({
     schemaVersion: '1.0', deliveryId: identifier(deliveryId, 'deliveryId'),
