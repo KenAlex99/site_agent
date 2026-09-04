@@ -22,7 +22,15 @@ id_rsa*
 *.tgz
 *.zip
 backups/
-deploy/
+
+# Deployment files are local by default; only reviewed examples are tracked.
+deploy/*
+!deploy/examples/
+deploy/examples/*
+!deploy/examples/nginx/
+deploy/examples/nginx/*
+!deploy/examples/nginx/*.example
+!deploy/examples/nginx/README.md
 
 # Local agent configuration
 .claude/

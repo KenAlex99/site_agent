@@ -1,6 +1,7 @@
 import { RendererRegistry } from './renderers/renderer-registry.js';
 import { chartJsRenderer } from './renderers/chartjs-renderer.js';
 import { uPlotRenderer } from './renderers/uplot-renderer.js';
+import { createRequestId } from './request-id.js';
 
 const registry = new RendererRegistry().register(chartJsRenderer).register(uPlotRenderer);
 const byId = (id) => document.getElementById(id);
@@ -19,7 +20,7 @@ bindEvents();
 await refreshAll();
 
 async function request(path) {
-  const response = await fetch(path, { headers: { accept: 'application/json', 'x-request-id': crypto.randomUUID() } });
+  const response = await fetch(path, { headers: { accept: 'application/json', 'x-request-id': createRequestId() } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.message || `请求失败（HTTP ${response.status}）`);
   return body;
