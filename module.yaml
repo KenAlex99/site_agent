@@ -26,6 +26,9 @@ provides:
     - monitoring.graph.proxy.v1
     - monitoring.site-agent.ingest.v1
     - monitoring.cloud-snapshot.query.v1
+    - monitoring.alert-event.ingest.v1
+    - monitoring.alert-snapshot.ingest.v1
+    - monitoring.alertmanager.relay.v1
 requires:
   mandatory: []
   optional:

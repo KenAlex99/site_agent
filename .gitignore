@@ -31,6 +31,12 @@ deploy/examples/*
 deploy/examples/nginx/*
 !deploy/examples/nginx/*.example
 !deploy/examples/nginx/README.md
+!deploy/examples/alertmanager/
+deploy/examples/alertmanager/*
+!deploy/examples/alertmanager/compose.yaml
+!deploy/examples/alertmanager/alertmanager.yml
+!deploy/examples/alertmanager/Dockerfile.relay
+!deploy/examples/alertmanager/README.md
 
 # Local agent configuration
 .claude/

@@ -1,0 +1,29 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: site-agent-relay
+  group_by: [alertname, site, device_id]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: site-agent-relay
+    webhook_configs:
+      - url: http://alert-relay:4312/api/v1/alertmanager/webhook
+        send_resolved: true
+        max_alerts: 100
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /run/secrets/alertmanager_webhook_token
+
+# Local policy: a critical device alert suppresses lower-severity alerts for
+# the same device. Adjust this rule for each site before production use.
+inhibit_rules:
+  - source_matchers:
+      - 'severity="critical"'
+    target_matchers:
+      - 'severity=~"warning|info"'
+    equal: [device_id]

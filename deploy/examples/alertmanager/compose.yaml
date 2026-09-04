@@ -1,0 +1,77 @@
+services:
+  alertmanager:
+    profiles: [alerts]
+    image: quay.io/prometheus/alertmanager:v0.33.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --data.retention=120h
+      - --web.listen-address=0.0.0.0:9093
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - alertmanager_webhook_token
+    networks:
+      - librenms
+    healthcheck:
+      test: [CMD, amtool, --alertmanager.url=http://127.0.0.1:9093, config, show]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  alert-relay:
+    profiles: [alerts]
+    build:
+      context: ../../..
+      dockerfile: deploy/examples/alertmanager/Dockerfile.relay
+    image: aiops-alert-relay:local
+    restart: unless-stopped
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+    environment:
+      ALERT_RELAY_HOST: 0.0.0.0
+      ALERT_RELAY_PORT: 4312
+      ALERT_RELAY_TOKEN_FILE: /run/secrets/alertmanager_webhook_token
+      ALERT_CLOUD_URL: ${ALERT_CLOUD_URL:?set ALERT_CLOUD_URL}
+      ALERT_CLOUD_TOKEN_FILE: /run/secrets/site_agent_cloud_token
+      ALERTMANAGER_URL: http://alertmanager:9093
+      ALERT_QUEUE_DIR: /var/lib/aiops-alert-relay/queue
+      ALERT_SNAPSHOT_INTERVAL_MS: ${ALERT_SNAPSHOT_INTERVAL_MS:-60000}
+      ALERT_QUEUE_MAX_ENTRIES: ${ALERT_QUEUE_MAX_ENTRIES:-10000}
+      ALERT_QUEUE_MAX_BYTES: ${ALERT_QUEUE_MAX_BYTES:-268435456}
+    ports:
+      - "127.0.0.1:${ALERT_RELAY_PORT:-4312}:4312"
+    volumes:
+      - alert-relay-data:/var/lib/aiops-alert-relay
+    secrets:
+      - alertmanager_webhook_token
+      - site_agent_cloud_token
+    networks:
+      - librenms
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4312/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  alertmanager-data:
+    name: ${ALERTMANAGER_DATA_VOLUME:-aiops-alertmanager-data}
+  alert-relay-data:
+    name: ${ALERT_RELAY_DATA_VOLUME:-aiops-alert-relay-data}
+
+secrets:
+  alertmanager_webhook_token:
+    file: ${ALERT_RELAY_TOKEN_FILE:?set ALERT_RELAY_TOKEN_FILE}
+  site_agent_cloud_token:
+    file: ${ALERT_CLOUD_TOKEN_FILE:?set ALERT_CLOUD_TOKEN_FILE}
+
+networks:
+  librenms:
+    external: true
+    name: ${LIBRENMS_NETWORK_NAME:-librenms_default}
