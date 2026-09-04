@@ -2,6 +2,7 @@ import { AppError, requireIdentifier } from './contracts.mjs';
 import { MonitoringService as BaseMonitoringService } from './monitoring-service.mjs';
 
 const rankingMetrics = new Set(['traffic', 'utilization', 'errors', 'discards']);
+const portSorts = new Set(['id', ...rankingMetrics]);
 
 export class MonitoringService extends BaseMonitoringService {
   async allPorts({ status = 'all', page = 1, pageSize = 50, sort = 'traffic', order = 'desc' } = {}) {
@@ -9,9 +10,14 @@ export class MonitoringService extends BaseMonitoringService {
     const deviceNames = new Map(devices.map((device) => [device.id, device.name]));
     const enriched = ports.map((port) => enrichPort(port, deviceNames.get(port.deviceId)));
     const filtered = status === 'all' ? enriched : enriched.filter((port) => port.status === status);
-    const metric = rankingMetrics.has(sort) ? sort : 'traffic';
+    const metric = portSorts.has(sort) ? sort : 'traffic';
     const direction = order === 'asc' ? 1 : -1;
-    filtered.sort((left, right) => direction * (metricValue(left, metric) - metricValue(right, metric)) || left.id.localeCompare(right.id));
+    filtered.sort((left, right) => {
+      const primary = metric === 'id'
+        ? compareIdentifiers(left.id, right.id)
+        : metricValue(left, metric) - metricValue(right, metric);
+      return direction * primary || compareIdentifiers(left.id, right.id);
+    });
     const safePage = boundedInteger(page, 1, 100000, 1);
     const safePageSize = boundedInteger(pageSize, 1, 200, 50);
     const start = (safePage - 1) * safePageSize;
@@ -116,6 +122,10 @@ function metricValue(port, metric) {
   if (metric === 'errors') return port.errors;
   if (metric === 'discards') return port.discards;
   return port.trafficBps;
+}
+
+function compareIdentifiers(left, right) {
+  return String(left).localeCompare(String(right), 'en', { numeric: true, sensitivity: 'base' });
 }
 
 function boundedInteger(value, min, max, fallback) {

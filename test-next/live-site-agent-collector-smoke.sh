@@ -98,6 +98,7 @@ jq -e --argjson devices "$expected_devices" --argjson ports "$expected_ports" --
   .tenantId == "tenant-a" and .siteId == "site-hk" and .sourceId == "librenms-hk-01" and
   .sequence == $sequence and .freshness == "fresh" and
   (.devices | length) == $devices and (.ports | length) == $ports and
+  ([.ports[].portKey] | unique | length) == $ports and
   (all(.devices[]; .deviceKey == ("librenms-hk-01/device/" + .localDeviceId))) and
   (all(.ports[]; .portKey == ("librenms-hk-01/port/" + .localPortId))) and
   ([.devices[].localDeviceId] as $device_ids | all(.ports[]; .localDeviceId as $id | $device_ids | index($id)))

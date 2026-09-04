@@ -79,7 +79,7 @@ async function collectPorts(config, fetchImpl) {
   let expectedTotal = null;
   while (expectedTotal === null || ports.length < expectedTotal) {
     const query = new URLSearchParams({
-      status: 'all', page: String(page), pageSize: String(config.pageSize), sort: 'traffic', order: 'desc'
+      status: 'all', page: String(page), pageSize: String(config.pageSize), sort: 'id', order: 'asc'
     });
     const body = await requestJson(`${config.localUrl}/api/v1/monitoring/ports?${query}`, {
       fetchImpl, timeoutMs: config.timeoutMs, label: `local ports page ${page}`

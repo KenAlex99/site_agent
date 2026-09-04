@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AIOps Monitoring Middleware API
-  version: 1.2.0
+  version: 1.3.0
   description: Provider-neutral monitoring API plus authenticated site-agent snapshot ingestion. Implementations must not expose LibreNMS payloads, tokens, database access, or renderer-specific options.
 servers:
   - url: http://127.0.0.1:4310
@@ -45,18 +45,30 @@ paths:
     get:
       operationId: getMonitoringHealth
       responses:
-        '200': { description: Provider configuration and connectivity }
+        '200':
+          description: Provider configuration and connectivity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringHealth' }
   /api/v1/monitoring/overview:
     get:
       operationId: getMonitoringOverview
       responses:
-        '200': { description: Normalized device and alert summary }
+        '200':
+          description: Normalized device and alert summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringOverview' }
         '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/monitoring/devices:
     get:
       operationId: listMonitoringDevices
       responses:
-        '200': { description: Normalized devices }
+        '200':
+          description: Normalized devices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringDeviceList' }
   /api/v1/monitoring/devices/{deviceId}/ports:
     get:
       operationId: listMonitoringPorts
@@ -66,7 +78,11 @@ paths:
           required: true
           schema: { type: string, maxLength: 160 }
       responses:
-        '200': { description: Normalized ports with rates in bps }
+        '200':
+          description: Normalized ports with rates in bps
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringPortList' }
         '400': { description: Invalid device ID }
   /api/v1/monitoring/alerts:
     get:
@@ -79,7 +95,11 @@ paths:
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
       responses:
-        '200': { description: Normalized alerts }
+        '200':
+          description: Normalized alerts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringAlertList' }
   /api/v1/monitoring/series/port-traffic:
     get:
       operationId: queryPortTrafficSeries
@@ -106,10 +126,14 @@ paths:
         - { in: query, name: status, schema: { type: string, enum: [all, up, down], default: all } }
         - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
         - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
-        - { in: query, name: sort, schema: { type: string, enum: [traffic, utilization, errors, discards], default: traffic } }
+        - { in: query, name: sort, schema: { type: string, enum: [id, traffic, utilization, errors, discards], default: traffic } }
         - { in: query, name: order, schema: { type: string, enum: [asc, desc], default: desc } }
       responses:
-        '200': { description: Paginated normalized ports across all devices }
+        '200':
+          description: Paginated normalized ports across all devices; use id/asc for stable full collection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringPortPage' }
   /api/v1/monitoring/ports/rankings:
     get:
       operationId: rankMonitoringPorts
@@ -118,7 +142,11 @@ paths:
         - { in: query, name: status, schema: { type: string, enum: [all, up, down], default: all } }
         - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
       responses:
-        '200': { description: Ranked ports with traffic, utilization, errors and discards }
+        '200':
+          description: Ranked ports with traffic, utilization, errors and discards
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringPortRankingPage' }
         '400': { description: Invalid ranking metric }
   /api/v1/monitoring/devices/{deviceId}/resources:
     get:
@@ -222,6 +250,158 @@ components:
     UpstreamError:
       description: Provider unavailable; upstream response and credentials are never returned
   schemas:
+    ProviderDescriptor:
+      type: object
+      additionalProperties: false
+      required: [id, name, configured]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        configured: { type: boolean }
+    MonitoringHealth:
+      type: object
+      additionalProperties: false
+      required: [status, provider]
+      properties:
+        status: { type: string, enum: [up, degraded] }
+        provider: { $ref: '#/components/schemas/ProviderDescriptor' }
+        message: { type: string }
+    MonitoringOverview:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, provider, devices, alerts]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        provider: { $ref: '#/components/schemas/ProviderDescriptor' }
+        devices:
+          type: object
+          additionalProperties: false
+          required: [total, up, down, states]
+          properties:
+            total: { type: integer, minimum: 0 }
+            up: { type: integer, minimum: 0 }
+            down: { type: integer, minimum: 0 }
+            states:
+              type: object
+              additionalProperties: { type: integer, minimum: 0 }
+        alerts:
+          type: object
+          additionalProperties: false
+          required: [total, active, severities]
+          properties:
+            total: { type: integer, minimum: 0 }
+            active: { type: integer, minimum: 0 }
+            severities:
+              type: object
+              additionalProperties: { type: integer, minimum: 0 }
+    MonitoringDevice:
+      type: object
+      additionalProperties: false
+      required: [id, name, hostname, status, disabled, os, hardware, location, lastPolledAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        hostname: { type: string }
+        status: { type: string }
+        disabled: { type: boolean }
+        os: { type: string }
+        hardware: { type: string }
+        location: { type: string }
+        uptimeSeconds: { type: [integer, 'null'], minimum: 0 }
+        lastPolledAt: { type: [string, 'null'], format: date-time }
+    MonitoringDeviceList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringDevice' }
+    MonitoringPort:
+      type: object
+      required: [id, deviceId, name, description, status, adminStatus, speedBps, rxBps, txBps]
+      properties:
+        id: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        name: { type: string }
+        description: { type: string }
+        group: { type: string }
+        status: { type: string }
+        adminStatus: { type: string }
+        macAddress: { type: string }
+        speedBps: { type: [number, 'null'], minimum: 0 }
+        rxBps: { type: [number, 'null'], minimum: 0 }
+        txBps: { type: [number, 'null'], minimum: 0 }
+        trafficBps: { type: number, minimum: 0 }
+        utilizationPercent: { type: [number, 'null'], minimum: 0 }
+        errors: { type: integer, minimum: 0 }
+        discards: { type: integer, minimum: 0 }
+        polledAt: { type: [string, 'null'], format: date-time }
+        pollIntervalSeconds: { type: [number, 'null'], minimum: 0 }
+    MonitoringPortList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringPort' }
+    MonitoringAlert:
+      type: object
+      additionalProperties: false
+      required: [id, deviceId, deviceName, ruleId, title, severity, state, acknowledged, openedAt, updatedAt, note]
+      properties:
+        id: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        ruleId: { type: string }
+        title: { type: string }
+        severity: { type: string }
+        state: { type: string }
+        acknowledged: { type: boolean }
+        openedAt: { type: [string, 'null'], format: date-time }
+        updatedAt: { type: [string, 'null'], format: date-time }
+        note: { type: string }
+    MonitoringAlertList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringAlert' }
+    MonitoringPortPage:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, total, page, pageSize, items]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 200 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringPort' }
+    MonitoringRankedPort:
+      allOf:
+        - { $ref: '#/components/schemas/MonitoringPort' }
+        - type: object
+          required: [rank, rankingValue]
+          properties:
+            rank: { type: integer, minimum: 1 }
+            rankingValue: { type: number }
+    MonitoringPortRankingPage:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, metric, total, items]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        metric: { type: string, enum: [traffic, utilization, errors, discards] }
+        total: { type: integer, minimum: 0 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringRankedPort' }
     SiteAgentSnapshotBatch:
       type: object
       additionalProperties: false

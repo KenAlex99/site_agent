@@ -51,6 +51,8 @@ test('collects every port page, maps allowed fields, and uploads one trusted sna
     if (parsed.pathname === '/api/v1/monitoring/ports') {
       const page = Number(parsed.searchParams.get('page'));
       assert.equal(parsed.searchParams.get('pageSize'), '2');
+      assert.equal(parsed.searchParams.get('sort'), 'id');
+      assert.equal(parsed.searchParams.get('order'), 'asc');
       if (page === 1) return json(200, { total: 3, page: 1, pageSize: 2, items: [
         {
           id: '9', deviceId: '5', name: 'Gi0/1', description: 'Uplink', status: 'up', adminStatus: 'up',
