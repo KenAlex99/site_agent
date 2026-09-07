@@ -58,6 +58,8 @@ pnpm test:site-agent-live
 pnpm test:site-agent-collector-live
 ```
 
+Site Agent、Alert Manager和正式服务保护的完整执行顺序、通过标准、隔离与清理要求见[组合回归测试指南](docs/guides/regression-testing.md)。
+
 ## Site Agent 单次采集上传
 
 复制示例配置并填写平台地址及分配给站点的凭据：
