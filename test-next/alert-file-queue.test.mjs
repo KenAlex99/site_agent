@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { join, parse } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AtomicAlertFileQueue } from '../src/alert-file-queue.mjs';
 
@@ -69,3 +69,25 @@ test('rejects a single record larger than the configured byte capacity', () => w
   assert.deepEqual(await readdir(join(rootDir, 'tmp')), []);
   assert.equal((await queue.stats()).bytes, 0);
 }));
+
+test('rejects a filesystem root as queue root', () => {
+  assert.throws(() => new AtomicAlertFileQueue({ rootDir: parse(tmpdir()).root }), /root/i);
+});
+
+test('startup cleanup preserves unrelated files in the queue tmp directory', async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), 'alert-file-queue-cleanup-'));
+  try {
+    const queueTmp = join(rootDir, 'tmp');
+    await mkdir(queueTmp);
+    await writeFile(join(queueTmp, 'operator-note.txt'), 'do not remove');
+    const abandonedQueueFile = '1760000000000-000001-11111111-1111-4111-8111-111111111111.22222222-2222-4222-8222-222222222222.tmp';
+    await writeFile(join(queueTmp, abandonedQueueFile), 'partial queue record');
+
+    const queue = new AtomicAlertFileQueue({ rootDir });
+    await queue.init();
+
+    assert.deepEqual(await readdir(queueTmp), ['operator-note.txt']);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});

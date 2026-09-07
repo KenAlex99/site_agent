@@ -117,6 +117,10 @@ test('loads safe relay defaults and rejects secrets placed directly in environme
   assert.equal(config.port, 4312);
   assert.equal(config.snapshotIntervalMs, 60_000);
   assert.throws(() => loadAlertRelayConfig({ ALERT_CLOUD_URL: 'https://cloud.example', ALERT_CLOUD_TOKEN: 'do-not-use-env' }), /TOKEN_FILE/);
+  assert.throws(() => loadAlertRelayConfig({
+    ALERT_CLOUD_URL: 'http://cloud.example', ALERT_CLOUD_TOKEN_FILE: '/run/secrets/cloud_token',
+    ALERT_RELAY_TOKEN_FILE: '/run/secrets/webhook_token', ALERT_QUEUE_DIR: '/var/lib/alert-relay/queue'
+  }), /HTTPS/i);
 });
 
 function queueStub(overrides = {}) {

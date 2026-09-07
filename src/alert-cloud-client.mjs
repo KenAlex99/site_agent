@@ -57,7 +57,14 @@ function cloudUrl(value) {
     || (url.pathname !== '/' && url.pathname !== '')) {
     throw new TypeError('Cloud URL must be an HTTP(S) origin without credentials, path, query or fragment');
   }
+  if (url.protocol === 'http:' && !loopbackHost(url.hostname)) {
+    throw new TypeError('Cloud URL must use HTTPS unless it targets the local loopback interface');
+  }
   return url;
+}
+
+function loopbackHost(hostname) {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(hostname.toLowerCase());
 }
 
 function credential(value) {

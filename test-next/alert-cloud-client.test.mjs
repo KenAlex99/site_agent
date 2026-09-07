@@ -25,9 +25,10 @@ test('uploads event and snapshot payloads to authenticated cloud endpoints', asy
 });
 
 test('validates cloud URLs and never permits embedded credentials or query data', () => {
-  for (const baseUrl of ['ftp://cloud.example', 'https://user:pass@cloud.example', 'https://cloud.example?a=1', 'https://cloud.example/#x']) {
+  for (const baseUrl of ['ftp://cloud.example', 'http://cloud.example', 'https://user:pass@cloud.example', 'https://cloud.example?a=1', 'https://cloud.example/#x']) {
     assert.throws(() => new AlertCloudClient({ baseUrl, token }), /URL/i);
   }
+  assert.doesNotThrow(() => new AlertCloudClient({ baseUrl: 'http://127.0.0.1:24310', token }));
 });
 
 test('classifies timeout, throttling and server errors as retryable without leaking credentials', async () => {

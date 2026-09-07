@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { resolve, join } from 'node:path';
+import { resolve, join, parse } from 'node:path';
 import { mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { AppError } from './contracts.mjs';
 
 const DEFAULT_MAX_ENTRIES = 10_000;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
+const UUID_PATTERN = '[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}';
+const QUEUE_ID_PATTERN = new RegExp(`^\\d{13}-\\d{6}-${UUID_PATTERN}$`);
+const TEMP_FILE_PATTERN = new RegExp(`^\\d{13}-\\d{6}-${UUID_PATTERN}\\.${UUID_PATTERN}\\.tmp$`);
 
 export class AtomicAlertFileQueue {
   constructor({ rootDir, maxEntries = DEFAULT_MAX_ENTRIES, maxBytes = DEFAULT_MAX_BYTES, clock = () => Date.now() } = {}) {
@@ -12,6 +15,7 @@ export class AtomicAlertFileQueue {
     if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) throw new TypeError('maxEntries must be a positive integer');
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new TypeError('maxBytes must be a positive integer');
     this.rootDir = resolve(rootDir);
+    if (this.rootDir === parse(this.rootDir).root) throw new TypeError('rootDir cannot be a filesystem root');
     this.tmpDir = join(this.rootDir, 'tmp');
     this.pendingDir = join(this.rootDir, 'pending');
     this.deadDir = join(this.rootDir, 'dead');
@@ -30,7 +34,9 @@ export class AtomicAlertFileQueue {
       mkdir(this.deadDir, { recursive: true, mode: 0o700 })
     ]);
     const abandoned = await readdir(this.tmpDir, { withFileTypes: true });
-    await Promise.all(abandoned.filter((entry) => entry.isFile()).map((entry) => unlink(join(this.tmpDir, entry.name))));
+    await Promise.all(abandoned
+      .filter((entry) => entry.isFile() && TEMP_FILE_PATTERN.test(entry.name))
+      .map((entry) => unlink(join(this.tmpDir, entry.name))));
     this.initialized = true;
     return this.stats();
   }
@@ -152,7 +158,7 @@ export class AtomicAlertFileQueue {
   }
 
   #recordPath(directory, queueId) {
-    if (!/^\d{13}-\d{6}-[a-f0-9-]{36}$/.test(String(queueId))) {
+    if (!QUEUE_ID_PATTERN.test(String(queueId))) {
       throw new AppError(400, 'ALERT_QUEUE_INVALID_ID', 'Alert queue ID is invalid');
     }
     return join(directory, `${queueId}.json`);

@@ -10,7 +10,7 @@ export function loadAlertRelayConfig(env = process.env) {
     queueDir: resolve(required(env.ALERT_QUEUE_DIR, 'ALERT_QUEUE_DIR')),
     localTokenFile: resolve(required(env.ALERT_RELAY_TOKEN_FILE, 'ALERT_RELAY_TOKEN_FILE')),
     cloudTokenFile: resolve(required(env.ALERT_CLOUD_TOKEN_FILE, 'ALERT_CLOUD_TOKEN_FILE')),
-    cloudUrl: origin(env.ALERT_CLOUD_URL, 'ALERT_CLOUD_URL'),
+    cloudUrl: origin(env.ALERT_CLOUD_URL, 'ALERT_CLOUD_URL', { requireHttpsForRemote: true }),
     alertmanagerUrl: origin(env.ALERTMANAGER_URL || 'http://alertmanager:9093', 'ALERTMANAGER_URL'),
     snapshotIntervalMs: integer(env.ALERT_SNAPSHOT_INTERVAL_MS || 60_000, 'ALERT_SNAPSHOT_INTERVAL_MS', 100, 3_600_000),
     workerIntervalMs: integer(env.ALERT_WORKER_INTERVAL_MS || 1_000, 'ALERT_WORKER_INTERVAL_MS', 50, 60_000),
@@ -20,14 +20,21 @@ export function loadAlertRelayConfig(env = process.env) {
   };
 }
 
-function origin(value, field) {
+function origin(value, field, { requireHttpsForRemote = false } = {}) {
   let url;
   try { url = new URL(required(value, field)); }
   catch { throw new Error(`${field} must be a valid URL`); }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname)) {
     throw new Error(`${field} must be an HTTP(S) origin without credentials, path, query or fragment`);
   }
+  if (requireHttpsForRemote && url.protocol === 'http:' && !loopbackHost(url.hostname)) {
+    throw new Error(`${field} must use HTTPS unless it targets the local loopback interface`);
+  }
   return url.href.replace(/\/$/, '');
+}
+
+function loopbackHost(hostname) {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(hostname.toLowerCase());
 }
 
 function required(value, field) {
