@@ -79,4 +79,3 @@ Accepted
 - https://prometheus.io/docs/alerting/latest/alerts_api/
 - https://prometheus.io/docs/alerting/latest/configuration/
 - https://docs.librenms.org/Alerting/Transports/Alertmanager/
-
