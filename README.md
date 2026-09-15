@@ -9,6 +9,7 @@
 - 提供 `/api/v1/monitoring/*` 统一监控接口。
 - 提供站点数据接收、鉴权、查询接口及本地端到端模拟工具。
 - 提供 `site-agent:once`，从本地监控接口采集设备和端口快照并主动上传。
+- 可选部署官方 Alertmanager 与持久化 Relay，实时上传告警事件并定期对账活动告警。
 - 浏览器端不依赖 `crypto.randomUUID()`，可在普通 HTTP 的局域网访问场景中运行。
 
 ## 环境要求
@@ -57,6 +58,8 @@ pnpm test:site-agent-live
 pnpm test:site-agent-collector-live
 ```
 
+Site Agent、Alert Manager和正式服务保护的完整执行顺序、通过标准、隔离与清理要求见[组合回归测试指南](docs/guides/regression-testing.md)。
+
 ## Site Agent 单次采集上传
 
 复制示例配置并填写平台地址及分配给站点的凭据：
@@ -83,6 +86,10 @@ pnpm site-agent:once
 
 `deploy/examples/nginx/` 提供通用反向代理示例。它不是基础功能的必需依赖，也不包含 Windows 防火墙、端口转发、现场 IP 或任何凭据。使用前请按部署环境调整监听端口、访问控制和 TLS。
 
+## 可选 Alertmanager
+
+`deploy/examples/alertmanager/` 提供官方 Alertmanager 与本站点 Relay 的可选 Compose 部署。未启用 `alerts` profile 时不会安装或启动。详细的 LibreNMS 原生 Transport、凭据、备份和回滚步骤见该目录 README。
+
 ## 目录说明
 
 - `main.mjs`：HTTP 服务入口。
@@ -91,4 +98,5 @@ pnpm site-agent:once
 - `contracts/`：站点代理数据契约。
 - `test-next/`：单元、回归和可选现场测试。
 - `site-agent-once.mjs`：Site Agent 单次采集上传入口。
+- `alert-relay.mjs`：可选告警 Relay 服务入口。
 - `deploy/examples/`：非必需的部署参考。

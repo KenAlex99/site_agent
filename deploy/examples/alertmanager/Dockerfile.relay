@@ -1,0 +1,11 @@
+FROM node:24.19.0-alpine
+
+WORKDIR /app
+COPY package.json alert-relay.mjs ./
+COPY src ./src
+
+RUN mkdir -p /var/lib/aiops-alert-relay/queue \
+    && chown -R node:node /app /var/lib/aiops-alert-relay
+
+USER node
+ENTRYPOINT ["node", "alert-relay.mjs"]

@@ -1,6 +1,7 @@
 import { requireIdentifier } from './contracts.mjs';
 import { BearerIdentityRegistry } from './site-agent-auth.mjs';
 import { normalizeSiteAgentBatch } from './site-agent-contracts.mjs';
+import { normalizeAlertEventBatch, normalizeAlertSnapshotBatch } from './alert-contracts.mjs';
 
 export class SiteAgentService {
   constructor({ store, agentCredentials = [], viewerCredentials = [], clock = () => Date.now() }) {
@@ -17,6 +18,16 @@ export class SiteAgentService {
     return this.store.ingest(identity, batch);
   }
 
+  ingestAlertEvents(authorization, input) {
+    const identity = this.agents.authenticate(authorization);
+    return this.store.ingestAlertEvents(identity, normalizeAlertEventBatch(input, identity, { now: this.clock() }));
+  }
+
+  ingestAlertSnapshot(authorization, input) {
+    const identity = this.agents.authenticate(authorization);
+    return this.store.ingestAlertSnapshot(identity, normalizeAlertSnapshotBatch(input, identity, { now: this.clock() }));
+  }
+
   listSources(authorization) {
     const viewer = this.viewers.authenticate(authorization);
     return { items: this.store.listSources(viewer.tenantIds) };
@@ -25,5 +36,15 @@ export class SiteAgentService {
   snapshot(authorization, sourceId) {
     const viewer = this.viewers.authenticate(authorization);
     return this.store.snapshot(requireIdentifier(sourceId, 'sourceId'), viewer.tenantIds);
+  }
+
+  alertEvents(authorization, sourceId, options) {
+    const viewer = this.viewers.authenticate(authorization);
+    return this.store.listAlertEvents(requireIdentifier(sourceId, 'sourceId'), viewer.tenantIds, options);
+  }
+
+  alertSnapshot(authorization, sourceId) {
+    const viewer = this.viewers.authenticate(authorization);
+    return this.store.alertSnapshot(requireIdentifier(sourceId, 'sourceId'), viewer.tenantIds);
   }
 }

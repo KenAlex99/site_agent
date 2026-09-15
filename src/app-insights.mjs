@@ -35,14 +35,24 @@ export function createApp({ service, siteAgentService = null, publicDir, package
 }
 
 async function handleSiteAgentApi(service, req, url) {
-  const { pathname } = url;
-  const ingestRoute = pathname === '/api/v1/site-agent/batches';
-  const cloudRoute = pathname === '/api/v1/cloud/monitoring/sources' || /^\/api\/v1\/cloud\/monitoring\/sources\/[^/]+\/snapshot$/.test(pathname);
+  const { pathname, searchParams } = url;
+  const snapshotIngestRoute = pathname === '/api/v1/site-agent/batches';
+  const alertEventIngestRoute = pathname === '/api/v1/site-agent/alert-events';
+  const alertSnapshotIngestRoute = pathname === '/api/v1/site-agent/alert-snapshots';
+  const ingestRoute = snapshotIngestRoute || alertEventIngestRoute || alertSnapshotIngestRoute;
+  const cloudRoute = pathname === '/api/v1/cloud/monitoring/sources'
+    || /^\/api\/v1\/cloud\/monitoring\/sources\/[^/]+\/(snapshot|alerts|alert-events)$/.test(pathname);
   if (!ingestRoute && !cloudRoute) return null;
   if (!service) throw new AppError(503, 'SITE_AGENT_NOT_CONFIGURED', 'Site agent ingestion is not configured');
   if (ingestRoute) {
     if (req.method !== 'POST') throw new AppError(405, 'SITE_AGENT_METHOD_NOT_ALLOWED', 'Only POST is supported');
-    const result = service.ingest(req.headers.authorization, await readJson(req, 2 * 1024 * 1024));
+    const maxBytes = snapshotIngestRoute ? 2 * 1024 * 1024 : 1024 * 1024;
+    const input = await readJson(req, maxBytes);
+    const result = snapshotIngestRoute
+      ? service.ingest(req.headers.authorization, input)
+      : alertEventIngestRoute
+        ? service.ingestAlertEvents(req.headers.authorization, input)
+        : service.ingestAlertSnapshot(req.headers.authorization, input);
     return { status: result.duplicate ? 200 : 202, body: result };
   }
   if (req.method !== 'GET') throw new AppError(405, 'SITE_AGENT_METHOD_NOT_ALLOWED', 'Only GET is supported');
@@ -50,7 +60,12 @@ async function handleSiteAgentApi(service, req, url) {
     return { status: 200, body: service.listSources(req.headers.authorization) };
   }
   const match = pathname.match(/^\/api\/v1\/cloud\/monitoring\/sources\/([^/]+)\/snapshot$/);
-  return { status: 200, body: service.snapshot(req.headers.authorization, decodePart(match[1])) };
+  if (match) return { status: 200, body: service.snapshot(req.headers.authorization, decodePart(match[1])) };
+  const alertMatch = pathname.match(/^\/api\/v1\/cloud\/monitoring\/sources\/([^/]+)\/(alerts|alert-events)$/);
+  const sourceId = decodePart(alertMatch[1]);
+  return alertMatch[2] === 'alerts'
+    ? { status: 200, body: service.alertSnapshot(req.headers.authorization, sourceId) }
+    : { status: 200, body: service.alertEvents(req.headers.authorization, sourceId, { limit: searchParams.get('limit') || 100 }) };
 }
 
 async function readJson(req, maxBytes) {

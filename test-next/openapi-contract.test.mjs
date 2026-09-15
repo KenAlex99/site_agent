@@ -6,7 +6,7 @@ const contractUrl = new URL('../contracts/openapi.yaml', import.meta.url);
 
 test('documents concrete schemas for core monitoring responses', async () => {
   const contract = await readFile(contractUrl, 'utf8');
-  assert.match(contract, /version: 1\.3\.0/);
+  assert.match(contract, /version: 1\.4\.0/);
 
   const expectedSchemas = [
     'MonitoringHealth',
@@ -20,6 +20,19 @@ test('documents concrete schemas for core monitoring responses', async () => {
 
   for (const schema of expectedSchemas) {
     assert.match(contract, new RegExp(`schema: \\{ \\$ref: '#/components/schemas/${schema}' \\}`));
+    assert.match(contract, new RegExp(`^    ${schema}:`, 'm'));
+  }
+});
+
+test('documents authenticated alert event and snapshot contracts', async () => {
+  const contract = await readFile(contractUrl, 'utf8');
+  for (const path of [
+    '/api/v1/site-agent/alert-events:',
+    '/api/v1/site-agent/alert-snapshots:',
+    '/api/v1/cloud/monitoring/sources/{sourceId}/alert-events:',
+    '/api/v1/cloud/monitoring/sources/{sourceId}/alerts:'
+  ]) assert.match(contract, new RegExp(`^  ${path.replace(/[{}]/g, '\\$&')}`, 'm'));
+  for (const schema of ['SiteAgentAlert', 'SiteAgentAlertEventBatch', 'SiteAgentAlertSnapshotBatch']) {
     assert.match(contract, new RegExp(`^    ${schema}:`, 'm'));
   }
 });
