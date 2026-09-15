@@ -18,7 +18,7 @@ async function withQueue(options, run) {
 
 test('atomically enqueues into pending and discovers files after restart', () => withQueue({}, async (queue, rootDir) => {
   const added = await queue.enqueue({ kind: 'alert-events', deliveryId: 'delivery-01' });
-  assert.match(added.queueId, /^\d{13}-\d{6}-[a-f0-9-]+$/);
+  assert.match(added.queueId, /^\d{13}-\d{16}-[a-f0-9-]+$/);
   assert.deepEqual(await readdir(join(rootDir, 'tmp')), []);
   assert.equal((await readdir(join(rootDir, 'pending'))).length, 1);
 
@@ -28,6 +28,45 @@ test('atomically enqueues into pending and discovers files after restart', () =>
   assert.equal(next.queueId, added.queueId);
   assert.equal(next.payload.deliveryId, 'delivery-01');
   assert.equal((await restarted.stats()).oldestAgeMs, 60_000);
+}));
+
+test('keeps queue identifiers valid and ordered after one million enqueues', () => withQueue({}, async (queue) => {
+  queue.sequence = 1_000_000;
+  const millionth = await queue.enqueue({ deliveryId: 'millionth' });
+  const next = await queue.enqueue({ deliveryId: 'next' });
+
+  assert.match(millionth.queueId, /^\d{13}-0000000001000000-[a-f0-9-]+$/);
+  assert.match(next.queueId, /^\d{13}-0000000001000001-[a-f0-9-]+$/);
+  assert.equal((await queue.peek()).queueId, millionth.queueId);
+}));
+
+test('continues to read legacy six-digit queue identifiers after upgrade', () => withQueue({}, async (queue, rootDir) => {
+  const queueId = '1788512400000-000007-11111111-1111-4111-8111-111111111111';
+  await writeFile(join(rootDir, 'pending', `${queueId}.json`), JSON.stringify({
+    version: 1, queueId, createdAt: '2026-09-04T09:00:00.000Z',
+    attempts: 0, nextAttemptAt: null, lastError: null, payload: { deliveryId: 'legacy' }
+  }));
+
+  assert.equal((await queue.peek()).payload.deliveryId, 'legacy');
+}));
+
+test('quarantines a corrupt head record and continues with the next delivery', () => withQueue({}, async (queue, rootDir) => {
+  const first = await queue.enqueue({ deliveryId: 'first' });
+  const second = await queue.enqueue({ deliveryId: 'second' });
+  await writeFile(join(rootDir, 'pending', `${first.queueId}.json`), '{broken-json', 'utf8');
+
+  assert.equal((await queue.peek()).queueId, second.queueId);
+  assert.deepEqual(await readdir(join(rootDir, 'pending')), [`${second.queueId}.json`]);
+  const firstQuarantine = await readdir(join(rootDir, 'corrupt'));
+  assert.equal(firstQuarantine.length, 1);
+  assert.equal(await readFile(join(rootDir, 'corrupt', firstQuarantine[0]), 'utf8'), '{broken-json');
+  assert.equal((await queue.stats()).entries, 1);
+
+  await writeFile(join(rootDir, 'pending', '000.json'), JSON.stringify({
+    version: 1, queueId: '000', createdAt: '2026-09-04T09:00:00.000Z', payload: { deliveryId: 'untrusted-name' }
+  }));
+  assert.equal((await queue.peek()).queueId, second.queueId);
+  assert.equal((await readdir(join(rootDir, 'corrupt'))).length, 2);
 }));
 
 test('returns oldest entries in filename order and acknowledges only the selected item', () => withQueue({}, async (queue) => {

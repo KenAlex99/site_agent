@@ -6,7 +6,8 @@ export class AlertRelayService {
   constructor({
     localToken, queue, worker, alertmanagerUrl, fetchImpl = globalThis.fetch,
     clock = () => Date.now(), logger = console, snapshotIntervalMs = 60_000,
-    workerIntervalMs = 1_000, maxWebhookBytes = 1024 * 1024
+    workerIntervalMs = 1_000, maxWebhookBytes = 1024 * 1024,
+    maxSnapshotBytes = 5 * 1024 * 1024
   } = {}) {
     this.localToken = token(localToken);
     if (!queue || !worker || typeof fetchImpl !== 'function') throw new TypeError('queue, worker and fetchImpl are required');
@@ -19,6 +20,8 @@ export class AlertRelayService {
     this.snapshotIntervalMs = snapshotIntervalMs;
     this.workerIntervalMs = workerIntervalMs;
     this.maxWebhookBytes = maxWebhookBytes;
+    if (!Number.isSafeInteger(maxSnapshotBytes) || maxSnapshotBytes < 1) throw new TypeError('maxSnapshotBytes must be a positive integer');
+    this.maxSnapshotBytes = maxSnapshotBytes;
     this.lastSnapshotSequence = 0;
     this.lastSnapshotSuccessAt = null;
     this.lastSnapshotErrorAt = null;
@@ -56,8 +59,7 @@ export class AlertRelayService {
         headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000)
       });
       if (!response.ok) throw new Error(`Alertmanager returned HTTP ${response.status}`);
-      const text = await response.text();
-      if (Buffer.byteLength(text, 'utf8') > 5 * 1024 * 1024) throw new Error('Alertmanager active alert response is too large');
+      const text = await readBoundedText(response, this.maxSnapshotBytes);
       let active;
       try { active = JSON.parse(text); }
       catch { throw new Error('Alertmanager returned invalid JSON'); }
@@ -123,6 +125,37 @@ async function readJson(req, maxBytes) {
   if (tooLarge) throw new AppError(413, 'ALERT_RELAY_BODY_TOO_LARGE', 'Webhook body exceeds 1 MiB');
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw new AppError(400, 'ALERT_RELAY_INVALID_JSON', 'Webhook body must be valid JSON'); }
+}
+
+async function readBoundedText(response, maxBytes) {
+  const declaredLength = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel?.().catch(() => {});
+    throw new Error('Alertmanager active alert response is too large');
+  }
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    throw new Error('Alertmanager returned an unreadable response body');
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      bytes += chunk.byteLength;
+      if (bytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error('Alertmanager active alert response is too large');
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, bytes).toString('utf8');
 }
 
 function authenticate(header, expected) {

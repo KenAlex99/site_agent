@@ -27,7 +27,8 @@ async function withRelay(options, run) {
     alertmanagerUrl: 'http://alertmanager:9093',
     fetchImpl: options.fetchImpl || (async () => new Response('[]', { status: 200 })),
     clock: options.clock || (() => Date.parse('2026-09-04T11:00:00Z')),
-    logger: { warn() {} }
+    logger: { warn() {} },
+    maxSnapshotBytes: options.maxSnapshotBytes
   });
   const server = createServer(service.handler());
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
@@ -105,6 +106,25 @@ test('polls Alertmanager API v2 and enqueues monotonic active-alert snapshots', 
     assert.equal(payloads[1].sequence, payloads[0].sequence + 1);
     assert.equal(payloads[0].alerts[0].status, 'firing');
     now += 60_000;
+  });
+});
+
+test('cancels an Alertmanager snapshot response as soon as its byte limit is exceeded', () => {
+  let cancelled = false;
+  let pulls = 0;
+  const fetchImpl = async () => new Response(new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(10));
+      if (pulls === 10) controller.close();
+    },
+    cancel() { cancelled = true; }
+  }), { status: 200 });
+
+  return withRelay({ fetchImpl, maxSnapshotBytes: 16 }, async (service) => {
+    await assert.rejects(() => service.pollSnapshot(), /too large/i);
+    assert.equal(cancelled, true);
+    assert.ok(pulls < 10);
   });
 });
 

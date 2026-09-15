@@ -27,8 +27,8 @@ Accepted
 2. 其他监控系统优先使用原生 Alertmanager/API v2 集成，只有不兼容时才增加适配器。
 3. Alertmanager 使用 Webhook 把分组后的 firing/resolved 通知发送给 Relay。
 4. Relay 验证本地 Bearer Token、限制请求大小、过滤标签和注释，然后先写原子文件队列再返回202。
-5. 单上传Worker按序向云端 `alert-events` 接口发送；2xx后删除，临时故障退避重试，永久无效数据移入死信目录。
-6. Relay每60秒读取 `/api/v2/alerts`，生成完整活跃告警快照并通过 `alert-snapshots` 接口上传。
+5. 单上传Worker按序向云端 `alert-events` 接口发送；2xx后删除，临时故障退避重试，永久无效数据移入死信目录。无法解析或文件名不符合队列契约的记录以受限权限原子移入独立 `corrupt` 目录，避免阻塞后续告警且不在日志中输出原文。
+6. Relay每60秒有界读取 `/api/v2/alerts`，生成完整活跃告警快照并通过 `alert-snapshots` 接口上传；响应超过5 MiB时立即取消读取。
 7. 云端使用Site Agent身份认证生成全局告警键，不信任载荷中的租户或站点字段。
 8. 第一阶段静默/抑制在站点Alertmanager管理；后续控制面完成后再由云端安全下发。
 
@@ -48,6 +48,7 @@ Accepted
 - 启用告警时增加两个容器及配置、数据卷和升级工作。
 - LibreNMS必须配置Alertmanager Transport。
 - 原子文件队列不适合高并发、多Worker和大规模查询。
+- 隔离的损坏记录不会自动删除，需要运维纳入受控检查、备份和容量管理。
 - 第一阶段站点静默规则不能从云端统一编辑。
 
 ### Neutral

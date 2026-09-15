@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { resolve, join, parse } from 'node:path';
-import { mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
+import { chmod, mkdir, open, readdir, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { AppError } from './contracts.mjs';
 
 const DEFAULT_MAX_ENTRIES = 10_000;
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024;
 const UUID_PATTERN = '[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}';
-const QUEUE_ID_PATTERN = new RegExp(`^\\d{13}-\\d{6}-${UUID_PATTERN}$`);
-const TEMP_FILE_PATTERN = new RegExp(`^\\d{13}-\\d{6}-${UUID_PATTERN}\\.${UUID_PATTERN}\\.tmp$`);
+const QUEUE_SEQUENCE_PATTERN = '(?:\\d{6}|\\d{16})';
+const QUEUE_ID_PATTERN = new RegExp(`^\\d{13}-${QUEUE_SEQUENCE_PATTERN}-${UUID_PATTERN}$`);
+const TEMP_FILE_PATTERN = new RegExp(`^\\d{13}-${QUEUE_SEQUENCE_PATTERN}-${UUID_PATTERN}\\.${UUID_PATTERN}\\.tmp$`);
 
 export class AtomicAlertFileQueue {
   constructor({ rootDir, maxEntries = DEFAULT_MAX_ENTRIES, maxBytes = DEFAULT_MAX_BYTES, clock = () => Date.now() } = {}) {
@@ -19,6 +20,7 @@ export class AtomicAlertFileQueue {
     this.tmpDir = join(this.rootDir, 'tmp');
     this.pendingDir = join(this.rootDir, 'pending');
     this.deadDir = join(this.rootDir, 'dead');
+    this.corruptDir = join(this.rootDir, 'corrupt');
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;
     this.clock = clock;
@@ -31,7 +33,8 @@ export class AtomicAlertFileQueue {
     await Promise.all([
       mkdir(this.tmpDir, { recursive: true, mode: 0o700 }),
       mkdir(this.pendingDir, { recursive: true, mode: 0o700 }),
-      mkdir(this.deadDir, { recursive: true, mode: 0o700 })
+      mkdir(this.deadDir, { recursive: true, mode: 0o700 }),
+      mkdir(this.corruptDir, { recursive: true, mode: 0o700 })
     ]);
     const abandoned = await readdir(this.tmpDir, { withFileTypes: true });
     await Promise.all(abandoned
@@ -47,7 +50,10 @@ export class AtomicAlertFileQueue {
       if (!plainObject(payload)) throw new TypeError('queue payload must be a JSON object');
       const now = this.clock();
       const suffix = randomUUID();
-      const queueId = `${String(now).padStart(13, '0')}-${String(this.sequence++).padStart(6, '0')}-${suffix}`;
+      if (!Number.isSafeInteger(this.sequence) || this.sequence < 0) throw new Error('Alert queue sequence is invalid');
+      const currentSequence = this.sequence;
+      this.sequence = currentSequence + 1;
+      const queueId = `${String(now).padStart(13, '0')}-${String(currentSequence).padStart(16, '0')}-${suffix}`;
       const record = {
         version: 1, queueId, createdAt: new Date(now).toISOString(),
         attempts: 0, nextAttemptAt: null, lastError: null, payload
@@ -62,12 +68,12 @@ export class AtomicAlertFileQueue {
     });
   }
 
-  async peek() {
-    this.#requireInit();
-    await this.writeChain;
-    const files = await this.#pendingFiles();
-    if (files.length === 0) return null;
-    return this.#readRecord(files[0]);
+  peek() {
+    return this.#serialized(async () => {
+      this.#requireInit();
+      const files = await this.#pendingFiles();
+      return this.#oldestValidRecord(files);
+    });
   }
 
   ack(queueId) {
@@ -105,19 +111,20 @@ export class AtomicAlertFileQueue {
     });
   }
 
-  async stats() {
-    this.#requireInit();
-    await this.writeChain;
-    return this.#stats();
+  stats() {
+    return this.#serialized(async () => {
+      this.#requireInit();
+      return this.#stats();
+    });
   }
 
   async #stats() {
     const files = await this.#pendingFiles();
+    const oldest = await this.#oldestValidRecord(files);
     let bytes = 0;
     for (const file of files) bytes += (await stat(join(this.pendingDir, file))).size;
     let oldestAgeMs = null;
-    if (files.length > 0) {
-      const oldest = await this.#readRecord(files[0]);
+    if (oldest) {
       oldestAgeMs = Math.max(0, this.clock() - Date.parse(oldest.createdAt));
     }
     return { entries: files.length, bytes, oldestAgeMs, maxEntries: this.maxEntries, maxBytes: this.maxBytes };
@@ -131,11 +138,34 @@ export class AtomicAlertFileQueue {
   }
 
   async #readRecord(fileName) {
-    const record = JSON.parse(await readFile(join(this.pendingDir, fileName), 'utf8'));
-    if (!plainObject(record) || record.version !== 1 || `${record.queueId}.json` !== fileName) {
+    const queueId = fileName.endsWith('.json') ? fileName.slice(0, -5) : '';
+    if (!QUEUE_ID_PATTERN.test(queueId)) {
+      throw new AppError(500, 'ALERT_QUEUE_CORRUPT_RECORD', 'Alert queue contains an invalid record');
+    }
+    const text = await readFile(join(this.pendingDir, fileName), 'utf8');
+    let record;
+    try { record = JSON.parse(text); }
+    catch { throw new AppError(500, 'ALERT_QUEUE_CORRUPT_RECORD', 'Alert queue contains an invalid record'); }
+    if (!plainObject(record) || record.version !== 1 || record.queueId !== queueId) {
       throw new AppError(500, 'ALERT_QUEUE_CORRUPT_RECORD', 'Alert queue contains an invalid record');
     }
     return record;
+  }
+
+  async #oldestValidRecord(files) {
+    while (files.length > 0) {
+      const fileName = files[0];
+      try { return await this.#readRecord(fileName); }
+      catch (error) {
+        if (error?.code !== 'ALERT_QUEUE_CORRUPT_RECORD') throw error;
+        const sourcePath = join(this.pendingDir, fileName);
+        await chmod(sourcePath, 0o600);
+        await rename(sourcePath, join(this.corruptDir, `${randomUUID()}.json`));
+        await Promise.all([syncDirectory(this.pendingDir), syncDirectory(this.corruptDir)]);
+        files.shift();
+      }
+    }
+    return null;
   }
 
   async #atomicWrite(targetDir, queueId, bytes, { replacePath } = {}) {
