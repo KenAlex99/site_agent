@@ -1,82 +1,94 @@
-# AIOps Monitoring Visualization Module
+# LibreNMS 统一监控与 Site Agent
 
-该模块以 LibreNMS REST API 为首个数据 Provider，以 Chart.js 和 uPlot 为首个图表 Renderer。网页不会访问 LibreNMS 数据库，也不会获得 LibreNMS URL、Token 或原始响应。
+本项目提供一个可独立部署的 Node.js 监控中间件与可视化页面。它通过服务端调用 LibreNMS API，向浏览器提供统一监控接口；同时包含 Site Agent 的单次采集上传能力，为后续“站点主动连接云端”的架构打基础。
 
-## 数据链路
+## 基础能力
 
-```text
-LibreNMS REST API -> LibreNmsProvider -> MonitoringService
- -> /api/v1/monitoring/* -> VisualizationSpec -> RendererRegistry
- -> Chart.js / uPlot
+- 在服务端保存并使用 LibreNMS API Token，Token 不下发到浏览器。
+- 展示设备、告警、端口排行、端口详情和 RRD 时序图。
+- 提供 `/api/v1/monitoring/*` 统一监控接口。
+- 提供站点数据接收、鉴权、查询接口及本地端到端模拟工具。
+- 提供 `site-agent:once`，从本地监控接口采集设备和端口快照并主动上传。
+- 浏览器端不依赖 `crypto.randomUUID()`，可在普通 HTTP 的局域网访问场景中运行。
 
-站点 LibreNMS -> Site Agent 批量快照 -> /api/v1/site-agent/batches
- -> 租户隔离读模型 -> /api/v1/cloud/monitoring/*
+## 环境要求
+
+- Node.js 20 或更高版本（推荐当前 LTS）
+- pnpm 9 或更高版本
+- 可访问的 LibreNMS 实例及只读 API Token
+
+## 安装与启动
+
+```bash
+git clone <repository-url> site_agent
+cd site_agent
+pnpm install --frozen-lockfile
+cp .env.monitoring.example .env
 ```
 
-- 替换 LibreNMS：实现与 `LibreNmsProvider` 相同的 Provider 方法，页面和 API 契约不变。
-- 替换图表库：注册新的 Renderer，监控 API 和业务页面数据逻辑不变。
-- LibreNMS 是权威存储；中间件只保留最多 `SERIES_MAX_POINTS` 个临时采样点，重启即清空。
+编辑 `.env`，至少填写：
 
-## 安装和运行
+```dotenv
+HOST=127.0.0.1
+PORT=4310
+LIBRENMS_URL=http://127.0.0.1:8000
+LIBRENMS_TOKEN=replace-with-a-read-only-token
+```
 
-```powershell
-cd demo/chart-dashboard
-pnpm install
-$env:LIBRENMS_URL='http://127.0.0.1:8000'
-$env:LIBRENMS_TOKEN='your-read-only-token'
+启动服务：
+
+```bash
 pnpm start
 ```
 
-浏览器打开 `http://127.0.0.1:4310`。
+浏览器默认访问 `http://127.0.0.1:4310/`。如果由 systemd、容器或进程管理器长期运行，也应使用同一个 `pnpm start` 入口。
 
-## 配置
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `HOST` | `127.0.0.1` | 中间件监听地址 |
-| `PORT` | `4310` | 中间件端口 |
-| `LIBRENMS_URL` | `http://127.0.0.1:8000` | LibreNMS 根地址 |
-| `LIBRENMS_TOKEN` | 空 | LibreNMS 只读 API Token |
-| `LIBRENMS_TIMEOUT_MS` | `5000` | 上游请求超时 |
-| `SERIES_MAX_POINTS` | `180` | 单端口内存采样上限 |
-| `SITE_AGENT_CREDENTIALS_JSON` | 空 | 代理令牌到租户、站点、来源的服务端绑定；与查看凭据同时配置 |
-| `PLATFORM_VIEWER_CREDENTIALS_JSON` | 空 | 平台查看令牌允许访问的租户列表；与代理凭据同时配置 |
-
-站点代理接口当前属于协议验证版本：凭据从环境变量加载后会在内存中哈希，日志和响应不会输出令牌；生产部署必须使用 HTTPS，并在后续阶段迁移到 mTLS 或短期凭据。快照目前保存在进程内存中，服务重启后丢失。
-
-## 页面与图表
-
-- Chart.js：全设备端口总流量、利用率、错误数和丢弃数排行。
-- uPlot：指定端口收发流量滚动时序图，每 10 秒请求一次标准化时序接口。
-- LibreNMS Graph代理：指定设备资源和指定端口的历史图，支持自定义时间范围。
-- 只读详情：资源当前传感器、可用率、ARP Table和Eventlog。
-- 告警列表通过 DOM 文本节点渲染，不插入 LibreNMS 返回的 HTML。
-
-## API 和验证
-
-契约位于 `contracts/openapi.yaml`。
-
-```powershell
-pnpm test
-pnpm run check
-```
-
-在 Linux/Ubuntu 上可运行不会修改正式4310服务的站点代理隔离测试：
+## 测试
 
 ```bash
-pnpm run test:site-agent-live
+pnpm check
+pnpm test
 ```
 
-该脚本默认使用 `127.0.0.1:4311`，临时生成测试令牌，覆盖认证、租户隔离、幂等、乱序、非法字段和请求大小限制，结束后自动关闭临时进程并删除临时数据。
+以下脚本需要已经运行的服务，属于可选的现场联调：
 
-测试使用注入的 Fake Provider，不访问真实 LibreNMS 或数据库。真实联调只需要配置只读 Token 后启动模块。
+```bash
+pnpm test:site-agent-live
+pnpm test:site-agent-collector-live
+```
 
-站点代理首批接口：
+## Site Agent 单次采集上传
 
-- `POST /api/v1/site-agent/batches`：代理上传设备和端口快照；
-- `GET /api/v1/cloud/monitoring/sources`：列出当前平台身份可访问的数据源；
-- `GET /api/v1/cloud/monitoring/sources/{sourceId}/snapshot`：读取指定来源的最新快照。
+复制示例配置并填写平台地址及分配给站点的凭据：
 
-## 当前限制
+```bash
+cp .env.site-agent.example .env.site-agent
+set -a
+. ./.env.site-agent
+set +a
+pnpm site-agent:once
+```
 
-LibreNMS 常见 Graph API 主要返回图片，并不提供适合 uPlot 的统一数组。历史Graph由中间件安全代理LibreNMS图片；uPlot仍通过中间件周期读取端口当前速率形成短期内存窗口。以后可在Provider内接入RRD导出服务、Prometheus或其他时序API，但必须继续返回同一个TimeSeriesFrame，不能让网页依赖下层格式。Notes明确不在本阶段范围内。
+`SITE_AGENT_LOCAL_URL` 指向本站点的监控中间件；`SITE_AGENT_CLOUD_URL` 指向云端接收接口。当前命令执行一次采集和上传，后续可以由 systemd timer、容器调度或平台心跳机制周期触发。
+
+## 配置与安全
+
+- `.env.example`：中间件及本地站点接收模拟的完整示例。
+- `.env.monitoring.example`：只运行监控页面时的最小示例。
+- `.env.site-agent.example`：Site Agent 单次上传示例。
+- 不要提交真实 `.env`、LibreNMS Token、Site Agent Token、私钥或 SNMP 凭据。
+- 生产环境应在反向代理层启用 TLS，并逐步将长期 Token 迁移到 mTLS 或短期凭据。
+
+## 可选 Nginx 参考
+
+`deploy/examples/nginx/` 提供通用反向代理示例。它不是基础功能的必需依赖，也不包含 Windows 防火墙、端口转发、现场 IP 或任何凭据。使用前请按部署环境调整监听端口、访问控制和 TLS。
+
+## 目录说明
+
+- `main.mjs`：HTTP 服务入口。
+- `src/`：配置、LibreNMS 适配、业务服务和 Site Agent 实现。
+- `public-next/`：前端页面与图表渲染器。
+- `contracts/`：站点代理数据契约。
+- `test-next/`：单元、回归和可选现场测试。
+- `site-agent-once.mjs`：Site Agent 单次采集上传入口。
+- `deploy/examples/`：非必需的部署参考。

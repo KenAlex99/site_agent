@@ -1,13 +1,15 @@
 {
   "name": "aiops-monitoring-visualization-module",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "start": "node main.mjs",
+    "site-agent:once": "node site-agent-once.mjs",
     "test": "node --test test-next/*.test.mjs",
     "test:site-agent-live": "bash test-next/live-site-agent-smoke.sh",
-    "check": "node --check main.mjs && node --check src/app.mjs && node --check src/app-insights.mjs && node --check src/contracts.mjs && node --check src/monitoring-service.mjs && node --check src/monitoring-service-insights.mjs && node --check src/site-agent-auth.mjs && node --check src/site-agent-config.mjs && node --check src/site-agent-contracts.mjs && node --check src/site-agent-service.mjs && node --check src/site-agent-store.mjs && node --check src/providers/librenms-provider.mjs && node --check src/providers/librenms-provider-insights.mjs && node --check src/providers/rrd-series-provider.mjs && node --check public-next/app.js && node --check public-next/insights.js && node --check public-next/renderers/renderer-registry.js && node --check public-next/renderers/chartjs-renderer.js && node --check public-next/renderers/uplot-renderer.js"
+    "test:site-agent-collector-live": "bash test-next/live-site-agent-collector-smoke.sh",
+    "check": "node --check main.mjs && node --check site-agent-once.mjs && node --check src/app.mjs && node --check src/app-insights.mjs && node --check src/contracts.mjs && node --check src/monitoring-service.mjs && node --check src/monitoring-service-insights.mjs && node --check src/site-agent-auth.mjs && node --check src/site-agent-client.mjs && node --check src/site-agent-config.mjs && node --check src/site-agent-contracts.mjs && node --check src/site-agent-service.mjs && node --check src/site-agent-store.mjs && node --check src/providers/librenms-provider.mjs && node --check src/providers/librenms-provider-insights.mjs && node --check src/providers/rrd-series-provider.mjs && node --check public-next/app.js && node --check public-next/insights.js && node --check public-next/request-id.js && node --check public-next/renderers/renderer-registry.js && node --check public-next/renderers/chartjs-renderer.js && node --check public-next/renderers/uplot-renderer.js"
   },
   "dependencies": {
     "chart.js": "4.4.4",

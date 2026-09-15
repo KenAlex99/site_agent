@@ -1,13 +1,14 @@
 import { RendererRegistry } from './renderers/renderer-registry.js';
 import { chartJsRenderer } from './renderers/chartjs-renderer.js';
 import { uPlotRenderer } from './renderers/uplot-renderer.js';
+import { createRequestId } from './request-id.js';
 
 const registry = new RendererRegistry().register(chartJsRenderer).register(uPlotRenderer);
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map((element) => [element.id, element]));
 const state = { overview: null, devices: [], ports: [], alerts: [], selectedDevice: '', selectedPort: '', poller: null };
 
 async function request(path) {
-  const response = await fetch(path, { headers: { accept: 'application/json', 'x-request-id': crypto.randomUUID() } });
+  const response = await fetch(path, { headers: { accept: 'application/json', 'x-request-id': createRequestId() } });
   let body = {};
   try { body = await response.json(); } catch { /* safe fallback */ }
   if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);

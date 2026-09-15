@@ -19,3 +19,14 @@ test('insights page uses a light theme and data-driven charts instead of graph i
   assert.match(renderer, /formatTimestamp/);
   assert.match(renderer, /legend: \{ show: true, live: true \}/);
 });
+
+test('browser pages use the shared request ID helper instead of calling randomUUID directly', async () => {
+  const [app, insights] = await Promise.all([
+    readFile(new URL('app.js', publicRoot), 'utf8'),
+    readFile(new URL('insights.js', publicRoot), 'utf8')
+  ]);
+  for (const script of [app, insights]) {
+    assert.match(script, /createRequestId/);
+    assert.doesNotMatch(script, /crypto\.randomUUID\s*\(/);
+  }
+});

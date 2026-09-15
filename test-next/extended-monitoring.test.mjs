@@ -147,3 +147,14 @@ test('keeps Notes and database access outside the read-only module', () => withS
   assert.equal((await fetch(`${base}/api/v1/monitoring/devices/1/notes`)).status, 404);
   assert.equal((await fetch(`${base}/api/v1/monitoring/database`)).status, 404);
 }));
+
+test('sorts collector pages by stable numeric port ID instead of changing traffic', async () => {
+  const provider = extendedFakeProvider();
+  provider.listAllPorts = async () => [
+    { id: '10', deviceId: '2', name: 'Gi0/2', status: 'up', rxBps: 1, txBps: 1 },
+    { id: '9', deviceId: '1', name: 'Gi0/1', status: 'up', rxBps: 9_000, txBps: 9_000 }
+  ];
+  const service = new MonitoringService(provider, { clock: () => 1_700_000_000_000 });
+  const result = await service.allPorts({ status: 'all', page: 1, pageSize: 2, sort: 'id', order: 'asc' });
+  assert.deepEqual(result.items.map((item) => item.id), ['9', '10']);
+});
