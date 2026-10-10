@@ -90,6 +90,10 @@ async function handleApi(service, res, url, requestId) {
   if (pathname === '/api/v1/monitoring/overview') return sendJson(res, 200, await service.overview());
   if (pathname === '/api/v1/monitoring/devices') return sendJson(res, 200, { items: await service.devices() });
   if (pathname === '/api/v1/monitoring/alerts') return sendJson(res, 200, { items: await service.alerts({ state: searchParams.get('state') || 'all', limit: searchParams.get('limit') || 50 }) });
+  if (pathname === '/api/v1/monitoring/alert-history') return sendJson(res, 200, await service.alertHistory({
+    from: searchParams.get('from'), to: searchParams.get('to'), page: searchParams.get('page') || 1,
+    pageSize: searchParams.get('pageSize') || 50, deviceId: searchParams.get('deviceId') || undefined
+  }));
   if (pathname === '/api/v1/monitoring/ports') {
     return sendJson(res, 200, await service.allPorts({
       status: searchParams.get('status') || 'all', page: searchParams.get('page') || 1,
@@ -103,6 +107,14 @@ async function handleApi(service, res, url, requestId) {
       status: searchParams.get('status') || 'all'
     }));
   }
+
+  const capabilitiesMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)\/capabilities$/);
+  if (capabilitiesMatch) return sendJson(res, 200, await service.deviceCapabilities(decodePart(capabilitiesMatch[1])));
+
+  const attributesMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)\/attributes$/);
+  if (attributesMatch) return sendJson(res, 200, await service.deviceAttributes(decodePart(attributesMatch[1]), {
+    fields: searchParams.get('fields') || undefined
+  }));
 
   const resourceMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)\/resources$/);
   if (resourceMatch) return sendJson(res, 200, await service.deviceResources(decodePart(resourceMatch[1])));
@@ -143,6 +155,8 @@ async function handleApi(service, res, url, requestId) {
 
   const portMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)\/ports$/);
   if (portMatch) return sendJson(res, 200, { items: await service.ports(decodePart(portMatch[1])) });
+  const deviceMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)$/);
+  if (deviceMatch) return sendJson(res, 200, await service.deviceSummary(decodePart(deviceMatch[1])));
   if (pathname === '/api/v1/monitoring/series/port-traffic') return sendJson(res, 200, await service.portTrafficSeries(searchParams.get('deviceId'), searchParams.get('portId')));
   return sendJson(res, 404, { code: 'MONITORING_ROUTE_NOT_FOUND', message: 'Route not found', requestId });
 }

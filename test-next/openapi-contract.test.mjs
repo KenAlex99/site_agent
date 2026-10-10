@@ -6,7 +6,7 @@ const contractUrl = new URL('../contracts/openapi.yaml', import.meta.url);
 
 test('documents concrete schemas for core monitoring responses', async () => {
   const contract = await readFile(contractUrl, 'utf8');
-  assert.match(contract, /version: 1\.4\.0/);
+  assert.match(contract, /version: 1\.5\.0/);
 
   const expectedSchemas = [
     'MonitoringHealth',
@@ -15,7 +15,10 @@ test('documents concrete schemas for core monitoring responses', async () => {
     'MonitoringPortList',
     'MonitoringAlertList',
     'MonitoringPortPage',
-    'MonitoringPortRankingPage'
+    'MonitoringPortRankingPage',
+    'DeviceCapabilityCatalog',
+    'DeviceAttributeList',
+    'MonitoringAlertHistoryPage'
   ];
 
   for (const schema of expectedSchemas) {

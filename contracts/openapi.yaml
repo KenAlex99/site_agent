@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AIOps Monitoring Middleware API
-  version: 1.4.0
+  version: 1.5.0
   description: Provider-neutral monitoring API plus authenticated site-agent snapshot and alert ingestion. Implementations must not expose LibreNMS payloads, tokens, database access, or renderer-specific options.
 servers:
   - url: http://127.0.0.1:4310
@@ -126,6 +126,47 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MonitoringDeviceList' }
+  /api/v1/monitoring/devices/{deviceId}:
+    get:
+      operationId: getMonitoringDevice
+      summary: Get the normalized core information used for monitoring and troubleshooting
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200':
+          description: Normalized core device information
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/MonitoringDevice' } }
+        '404': { description: Device not found }
+  /api/v1/monitoring/devices/{deviceId}/capabilities:
+    get:
+      operationId: listMonitoringDeviceCapabilities
+      summary: Browse the safe per-device query directory before requesting details
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200':
+          description: Core and extension categories currently supported by the middleware
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/DeviceCapabilityCatalog' } }
+        '404': { description: Device not found }
+  /api/v1/monitoring/devices/{deviceId}/attributes:
+    get:
+      operationId: listMonitoringDeviceAttributes
+      summary: List safe provider-specific device attributes; secret fields never appear
+      parameters:
+        - { in: path, name: deviceId, required: true, schema: { type: string, maxLength: 160 } }
+        - in: query
+          name: fields
+          description: Optional comma-separated exact attribute paths returned by the directory or a previous unfiltered response
+          schema: { type: string, maxLength: 16100 }
+      responses:
+        '200':
+          description: Bounded and filtered typed attribute list
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/DeviceAttributeList' } }
+        '400': { description: Invalid or excessive fields query }
+        '404': { description: Device not found }
   /api/v1/monitoring/devices/{deviceId}/ports:
     get:
       operationId: listMonitoringPorts
@@ -157,6 +198,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MonitoringAlertList' }
+  /api/v1/monitoring/alert-history:
+    get:
+      operationId: listMonitoringAlertHistory
+      summary: Query a read-only LibreNMS alert log window of at most 31 days
+      parameters:
+        - { in: query, name: from, required: true, schema: { type: string, format: date-time } }
+        - { in: query, name: to, required: true, schema: { type: string, format: date-time } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { in: query, name: deviceId, schema: { type: string, maxLength: 160 } }
+      responses:
+        '200':
+          description: Paged normalized alert history without sensitive LibreNMS fields
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringAlertHistoryPage' }
+        '400': { description: Invalid query or range longer than 31 days }
   /api/v1/monitoring/series/port-traffic:
     get:
       operationId: queryPortTrafficSeries
@@ -229,7 +287,13 @@ paths:
         - { in: path, name: resourceType, required: true, schema: { type: string, pattern: '^[a-zA-Z0-9_-]+$' } }
         - { in: query, name: from, schema: { type: string, default: '-24h' } }
         - { in: query, name: to, schema: { type: string, default: now } }
-        - { in: query, name: maxPoints, schema: { type: integer, minimum: 60, maximum: 480, default: 360 } }
+        - in: query
+          name: maxPoints
+          description: Use `all` to return every point available from the selected RRD archive; integer mode remains bounded for compatibility.
+          schema:
+            oneOf:
+              - { type: integer, minimum: 60, maximum: 480, default: 360 }
+              - { type: string, enum: [all] }
       responses:
         '200':
           description: Renderer-neutral resource history exported from LibreNMS RRD
@@ -244,7 +308,13 @@ paths:
         - { in: path, name: portId, required: true, schema: { type: string, maxLength: 160 } }
         - { in: query, name: from, schema: { type: string, default: '-24h' } }
         - { in: query, name: to, schema: { type: string, default: now } }
-        - { in: query, name: maxPoints, schema: { type: integer, minimum: 60, maximum: 480, default: 360 } }
+        - in: query
+          name: maxPoints
+          description: Use `all` to return every point available from the selected RRD archive; integer mode remains bounded for compatibility.
+          schema:
+            oneOf:
+              - { type: integer, minimum: 60, maximum: 480, default: 360 }
+              - { type: string, enum: [all] }
       responses:
         '200':
           description: Renderer-neutral RX and TX history exported from the port RRD
@@ -359,6 +429,7 @@ components:
         id: { type: string }
         name: { type: string }
         hostname: { type: string }
+        ipAddress: { type: string }
         status: { type: string }
         disabled: { type: boolean }
         os: { type: string }
@@ -366,6 +437,68 @@ components:
         location: { type: string }
         uptimeSeconds: { type: [integer, 'null'], minimum: 0 }
         lastPolledAt: { type: [string, 'null'], format: date-time }
+    MonitoringProvider:
+      type: object
+      additionalProperties: false
+      required: [id, name, configured]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        configured: { type: boolean }
+    DeviceCapability:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, available, href]
+      properties:
+        id: { type: string, enum: [summary, ports, resources, events, attributes] }
+        name: { type: string }
+        kind: { type: string, enum: [core, extension] }
+        available: { type: boolean }
+        href: { type: string }
+        supportsFields: { type: boolean }
+    DeviceCapabilityCatalog:
+      type: object
+      additionalProperties: false
+      required: [device, generatedAt, source, items]
+      properties:
+        device:
+          type: object
+          additionalProperties: false
+          required: [id, name, status]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            status: { type: string }
+        generatedAt: { type: string, format: date-time }
+        source: { $ref: '#/components/schemas/MonitoringProvider' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DeviceCapability' }
+    DeviceAttribute:
+      type: object
+      additionalProperties: false
+      required: [key, category, type, value]
+      properties:
+        key: { type: string }
+        category: { type: string }
+        type: { type: string, enum: [string, number, boolean, 'null'] }
+        value: { type: [string, number, boolean, 'null'] }
+    DeviceAttributeList:
+      type: object
+      additionalProperties: false
+      required: [deviceId, generatedAt, source, total, available, requestedFields, truncated, items]
+      properties:
+        deviceId: { type: string }
+        generatedAt: { type: string, format: date-time }
+        source: { $ref: '#/components/schemas/MonitoringProvider' }
+        total: { type: integer, minimum: 0, maximum: 500 }
+        available: { type: integer, minimum: 0 }
+        requestedFields: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        truncated: { type: boolean }
+        items:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/DeviceAttribute' }
     MonitoringDeviceList:
       type: object
       additionalProperties: false
@@ -428,6 +561,31 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/MonitoringAlert' }
+    MonitoringAlertHistory:
+      type: object
+      additionalProperties: false
+      required: [id, deviceId, deviceName, ruleId, title, severity, state, occurredAt, description]
+      properties:
+        id: { type: string }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        ruleId: { type: string }
+        title: { type: string, maxLength: 500 }
+        severity: { type: string }
+        state: { type: string }
+        occurredAt: { type: [string, 'null'], format: date-time }
+        description: { type: string, maxLength: 4000 }
+    MonitoringAlertHistoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MonitoringAlertHistory' }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 200 }
+        total: { type: integer, minimum: 0 }
     MonitoringPortPage:
       type: object
       additionalProperties: false
@@ -577,6 +735,8 @@ components:
         unit: { type: string }
         sampledAt: { type: string, format: date-time }
         sampleMode: { type: string }
+        pointMode: { type: string, enum: [bounded, all-available] }
+        pointCount: { type: integer, minimum: 0 }
         series:
           type: array
           items:

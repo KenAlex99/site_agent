@@ -1,10 +1,48 @@
 import { AppError, requireIdentifier } from './contracts.mjs';
+import { parseAttributeFields } from './device-attributes.mjs';
 import { MonitoringService as BaseMonitoringService } from './monitoring-service.mjs';
 
 const rankingMetrics = new Set(['traffic', 'utilization', 'errors', 'discards']);
 const portSorts = new Set(['id', ...rankingMetrics]);
 
 export class MonitoringService extends BaseMonitoringService {
+  async deviceSummary(deviceId) {
+    const safeDeviceId = requireIdentifier(deviceId, 'deviceId');
+    const device = (await this.provider.listDevices()).find((item) => item.id === safeDeviceId || item.hostname === safeDeviceId);
+    if (!device) throw new AppError(404, 'MONITORING_DEVICE_NOT_FOUND', 'Device was not found');
+    return device;
+  }
+
+  async deviceAttributes(deviceId, { fields } = {}) {
+    const safeDeviceId = requireIdentifier(deviceId, 'deviceId');
+    const result = await this.provider.getDeviceAttributes(safeDeviceId, { fields: parseAttributeFields(fields) });
+    return {
+      deviceId: safeDeviceId,
+      generatedAt: new Date(this.clock()).toISOString(),
+      source: this.provider.descriptor,
+      ...result
+    };
+  }
+
+  async deviceCapabilities(deviceId) {
+    const device = await this.deviceSummary(deviceId);
+    const encoded = encodeURIComponent(device.id);
+    const base = `/api/v1/monitoring/devices/${encoded}`;
+    const supported = (method) => typeof this.provider[method] === 'function';
+    return {
+      device: { id: device.id, name: device.name, status: device.status },
+      generatedAt: new Date(this.clock()).toISOString(),
+      source: this.provider.descriptor,
+      items: [
+        { id: 'summary', name: '核心设备信息', kind: 'core', available: true, href: base },
+        { id: 'ports', name: '端口与接口', kind: 'core', available: supported('listPorts'), href: `${base}/ports` },
+        { id: 'resources', name: '健康指标与可用性', kind: 'core', available: supported('listDeviceResources'), href: `${base}/resources` },
+        { id: 'events', name: '设备事件', kind: 'core', available: supported('listEventLog'), href: `${base}/events` },
+        { id: 'attributes', name: '安全扩展属性', kind: 'extension', available: supported('getDeviceAttributes'), href: `${base}/attributes`, supportsFields: true }
+      ]
+    };
+  }
+
   async allPorts({ status = 'all', page = 1, pageSize = 50, sort = 'traffic', order = 'desc' } = {}) {
     const [ports, devices] = await Promise.all([this.provider.listAllPorts(), this.provider.listDevices()]);
     const deviceNames = new Map(devices.map((device) => [device.id, device.name]));

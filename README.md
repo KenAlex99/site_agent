@@ -34,7 +34,10 @@ HOST=127.0.0.1
 PORT=4310
 LIBRENMS_URL=http://127.0.0.1:8000
 LIBRENMS_TOKEN=replace-with-a-read-only-token
+LIBRENMS_TIME_ZONE=Asia/Shanghai
 ```
+
+`LIBRENMS_TIME_ZONE` 必须使用与 LibreNMS/PHP 应用一致的 IANA 时区名称。告警历史接口以 UTC 接收和返回时间；中间件仅在调用 LibreNMS `alertlog` 时转换为其本地 `DATETIME`。未配置或配置无效时，历史查询会明确失败，不会退回 Windows/Node 宿主机时区。夏令时回拨产生重复本地时间时选择较早的实际时刻；LibreNMS 的无偏移 `DATETIME` 本身无法区分重复小时内的两个时刻。
 
 启动服务：
 

@@ -21,6 +21,19 @@ test('exports port RRD values as bounded renderer-neutral bps series', async () 
   assert.ok(args.includes('CDEF:c0=v0,8,*'));
 });
 
+test('exports every RRD archive point requested by all mode without the 480 point ceiling', async () => {
+  let args;
+  const provider = new RrdSeriesProvider({
+    hostDir: '/rrd', containerDir: '/data/rrd', container: 'librenms', clock: () => 1_700_000_600_000,
+    run: async (value) => { args = value; return sampleXport(); }
+  });
+  const frame = await provider.portTrafficSeries({ hostname: 'router-1', portId: '9', from: '-30d', maxPoints: 'all' });
+  assert.equal(frame.pointMode, 'all-available');
+  assert.equal(frame.pointCount, 2);
+  assert.ok(args.includes('527042'));
+  assert.ok(!args.includes('480'));
+});
+
 test('exports only supported resource files, caches results and rejects traversal', async () => {
   let calls = 0;
   const provider = new RrdSeriesProvider({

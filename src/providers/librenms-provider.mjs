@@ -1,4 +1,6 @@
 import { AppError, finiteNumber, isoTime, normalizeSeverity, normalizeState, requireIdentifier } from '../contracts.mjs';
+import { projectDeviceAttributes } from '../device-attributes.mjs';
+import { formatLibreNmsLocalTime, parseLibreNmsTime, requireIanaTimeZone } from '../librenms-time.mjs';
 
 const portColumns = [
   'port_id', 'device_id', 'ifName', 'ifDescr', 'ifAlias', 'ifOperStatus', 'ifAdminStatus',
@@ -6,9 +8,10 @@ const portColumns = [
 ].join(',');
 
 export class LibreNmsProvider {
-  constructor({ baseUrl, token, timeoutMs = 5000, fetchImpl = fetch }) {
+  constructor({ baseUrl, token, timeZone, timeoutMs = 5000, fetchImpl = fetch }) {
     this.baseUrl = String(baseUrl || 'http://127.0.0.1:8000').replace(/\/+$/, '');
     this.token = String(token || '');
+    this.timeZone = String(timeZone || '').trim();
     this.timeoutMs = timeoutMs;
     this.fetchImpl = fetchImpl;
   }
@@ -28,6 +31,15 @@ export class LibreNmsProvider {
     return arrayOf(body.devices).map(normalizeDevice);
   }
 
+  async getDeviceAttributes(deviceId, options = {}) {
+    const id = requireIdentifier(deviceId, 'deviceId');
+    const body = await this.request(`/devices/${encodeURIComponent(id)}`);
+    const devices = arrayOf(body.devices);
+    const raw = devices.find((device) => String(device.device_id ?? device.hostname ?? '') === id) ?? devices[0];
+    if (!raw) throw new AppError(404, 'MONITORING_DEVICE_NOT_FOUND', 'Device was not found');
+    return projectDeviceAttributes(raw, options);
+  }
+
   async listPorts(deviceId) {
     const id = requireIdentifier(deviceId, 'deviceId');
     const query = new URLSearchParams({ columns: portColumns });
@@ -41,6 +53,37 @@ export class LibreNmsProvider {
     if (safeState !== 'all') query.set('state', safeState);
     const body = await this.request('/alerts', query);
     return arrayOf(body.alerts).map(normalizeAlert);
+  }
+
+  async listAlertHistory({ from, to, page = 1, pageSize = 50, deviceId } = {}) {
+    const range = alertHistoryRange(from, to);
+    const timeZone = requireIanaTimeZone(this.timeZone);
+    const safePage = boundedInteger(page, 'page', 1, 100000);
+    const safePageSize = boundedInteger(pageSize, 'pageSize', 1, 200);
+    const path = deviceId === undefined || deviceId === null || deviceId === ''
+      ? '/logs/alertlog'
+      : `/logs/alertlog/${encodeURIComponent(requireIdentifier(deviceId, 'deviceId'))}`;
+    const query = new URLSearchParams({
+      from: formatLibreNmsLocalTime(range.from, timeZone),
+      to: formatLibreNmsLocalTime(range.to, timeZone),
+      start: String((safePage - 1) * safePageSize),
+      limit: String(safePageSize)
+    });
+    const body = await this.request(path, query);
+    const entries = arrayOf(body.logs ?? body.alertlog);
+    let rulesById = new Map();
+    if (entries.some(needsAlertRuleMetadata)) {
+      const rulesBody = await this.request('/rules');
+      rulesById = new Map(arrayOf(rulesBody.rules)
+        .map((rule) => [String(rule.id ?? rule.rule_id ?? ''), {
+          name: limitedText(rule.name ?? rule.rule_name ?? '', 500),
+          severity: normalizeSeverity(rule.severity)
+        }])
+        .filter(([id]) => id));
+    }
+    const items = entries.map((entry) => normalizeAlertHistory(entry, rulesById.get(String(entry.rule_id ?? '')), timeZone));
+    const reportedTotal = Number(body.total ?? body.count);
+    return { items, page: safePage, pageSize: safePageSize, total: Number.isSafeInteger(reportedTotal) && reportedTotal >= 0 ? reportedTotal : items.length };
   }
 
   async request(path, search = new URLSearchParams()) {
@@ -76,11 +119,13 @@ function normalizeDevice(device) {
     id,
     name: String(device.display ?? device.sysName ?? device.hostname ?? id),
     hostname: String(device.hostname ?? ''),
+    ipAddress: String(device.ip ?? (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(String(device.hostname ?? '')) ? device.hostname : '')),
     status: normalizeState(device.status),
     disabled: normalizeState(device.disabled, 'disabled', 'enabled') === 'disabled',
     os: String(device.os ?? 'unknown'),
     hardware: String(device.hardware ?? ''),
     location: String(device.location ?? device.location_name ?? ''),
+    uptimeSeconds: finiteNumber(device.uptime),
     lastPolledAt: isoTime(device.last_polled)
   };
 }
@@ -123,4 +168,49 @@ function normalizeAlert(alert) {
   };
 }
 
-export const libreNmsNormalizers = { normalizeDevice, normalizePort, normalizeAlert };
+function normalizeAlertHistory(entry, rule = {}, timeZone) {
+  const id = String(entry.id ?? entry.alert_log_id ?? entry.alertlog_id ?? '');
+  const state = entry.state === 0 || entry.state === '0' ? 'ok'
+    : entry.state === 2 || entry.state === '2' ? 'acknowledged'
+      : entry.state === 1 || entry.state === '1' ? 'active' : String(entry.state || 'unknown').toLowerCase();
+  return {
+    id,
+    deviceId: String(entry.device_id ?? entry.device?.device_id ?? ''),
+    deviceName: limitedText(entry.hostname ?? entry.device?.hostname ?? entry.device_id, 500),
+    ruleId: String(entry.rule_id ?? ''),
+    title: limitedText(entry.name ?? entry.rule_name ?? entry.title ?? rule.name ?? `Alert ${id}`, 500),
+    severity: normalizeSeverity(entry.severity ?? rule.severity),
+    state,
+    occurredAt: parseLibreNmsTime(entry.time_logged ?? entry.timestamp ?? entry.datetime, timeZone),
+    description: alertHistoryDescription(entry.details ?? entry.message ?? entry.description ?? '')
+  };
+}
+
+function needsAlertRuleMetadata(entry) {
+  return Boolean(entry.rule_id) && (!(entry.name ?? entry.rule_name ?? entry.title) || normalizeSeverity(entry.severity) === 'unknown');
+}
+
+function alertHistoryDescription(value) {
+  return typeof value === 'string' ? limitedText(value, 4000) : '';
+}
+
+function alertHistoryRange(from, to) {
+  const fromMs = Date.parse(String(from || ''));
+  const toMs = Date.parse(String(to || ''));
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs || toMs - fromMs > 31 * 86_400_000) {
+    throw new AppError(400, 'MONITORING_INVALID_ARGUMENT', 'Alert history requires a valid range of at most 31 days');
+  }
+  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() };
+}
+
+function boundedInteger(value, field, min, max) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < min || number > max) throw new AppError(400, 'MONITORING_INVALID_ARGUMENT', `${field} is invalid`);
+  return number;
+}
+
+function limitedText(value, max) {
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+}
+
+export const libreNmsNormalizers = { normalizeDevice, normalizePort, normalizeAlert, normalizeAlertHistory };

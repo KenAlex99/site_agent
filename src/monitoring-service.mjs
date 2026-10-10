@@ -12,6 +12,7 @@ export class MonitoringService {
   devices() { return this.provider.listDevices(); }
   ports(deviceId) { return this.provider.listPorts(requireIdentifier(deviceId, 'deviceId')); }
   alerts(options) { return this.provider.listAlerts(options); }
+  alertHistory(options) { return this.provider.listAlertHistory(options); }
 
   async overview() {
     const [devices, alerts] = await Promise.all([this.devices(), this.alerts({ state: 'all', limit: 100 })]);

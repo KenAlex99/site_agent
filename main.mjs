@@ -18,6 +18,7 @@ const rrdSeries = new RrdSeriesProvider({
 const provider = new LibreNmsProvider({
   baseUrl: process.env.LIBRENMS_URL || 'http://127.0.0.1:8000',
   token: process.env.LIBRENMS_TOKEN || '',
+  timeZone: process.env.LIBRENMS_TIME_ZONE || '',
   timeoutMs: Number(process.env.LIBRENMS_TIMEOUT_MS || 5000),
   rrdSeries
 });

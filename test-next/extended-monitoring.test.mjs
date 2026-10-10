@@ -101,6 +101,7 @@ function extendedFakeProvider() {
     async listPorts(deviceId) { return ports.filter((item) => item.deviceId === deviceId); },
     async listAllPorts() { return ports; },
     async listAlerts() { return []; },
+    async getDeviceAttributes() { return { total: 2, available: 3, requestedFields: 2, truncated: false, items: [{ key: 'hostname', category: 'hostname', type: 'string', value: 'router-1' }, { key: 'hardware', category: 'hardware', type: 'string', value: 'R1' }] }; },
     async listDeviceResources(deviceId) { return { deviceId, graphs: [{ id: 'uptime', name: 'Uptime', category: 'device' }], availability: [] }; },
     async listDeviceResourceSensors() { return []; },
     async getDeviceResourceSeries() { return { id: 'resource:uptime', title: 'Uptime', unit: 's', sampledAt: '2026-09-01T00:00:00Z', sampleMode: 'rrd-xport', series: [{ id: 's1', name: 'uptime', points: [[1_700_000_000, 123]] }] }; },
@@ -122,6 +123,9 @@ async function withServer(run) {
 }
 
 test('serves rankings, resources, renderer-neutral series, ARP and events', () => withServer(async (base) => {
+  const groups = await fetch(`${base}/api/v1/monitoring/device-groups`);
+  assert.equal(groups.status, 404);
+
   const ranking = await (await fetch(`${base}/api/v1/monitoring/ports/rankings?metric=utilization&limit=10`)).json();
   assert.deepEqual(ranking.items.map((item) => item.id), ['9', '10']);
   assert.equal(ranking.items[0].utilizationPercent, 80);
@@ -141,6 +145,20 @@ test('serves rankings, resources, renderer-neutral series, ARP and events', () =
   const events = await (await fetch(`${base}/api/v1/monitoring/devices/1/events?limit=20`)).json();
   assert.equal(events.items[0].id, 'e1');
 
+}));
+
+test('serves a per-device directory, core summary and narrowed safe attributes', () => withServer(async (base) => {
+  const directory = await (await fetch(`${base}/api/v1/monitoring/devices/1/capabilities`)).json();
+  assert.equal(directory.device.name, 'router-1');
+  assert.deepEqual(directory.items.map((item) => item.id), ['summary', 'ports', 'resources', 'events', 'attributes']);
+  assert.equal(directory.items.find((item) => item.id === 'attributes').supportsFields, true);
+
+  const summary = await (await fetch(`${base}/api/v1/monitoring/devices/1`)).json();
+  assert.equal(summary.id, '1');
+  const attributes = await (await fetch(`${base}/api/v1/monitoring/devices/1/attributes?fields=hostname,hardware`)).json();
+  assert.equal(attributes.source.id, 'fake');
+  assert.deepEqual(attributes.items.map((item) => item.key), ['hostname', 'hardware']);
+  assert.equal((await fetch(`${base}/api/v1/monitoring/devices/1/attributes?fields=bad%20field`)).status, 400);
 }));
 
 test('keeps Notes and database access outside the read-only module', () => withServer(async (base) => {

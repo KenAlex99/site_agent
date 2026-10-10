@@ -7,6 +7,7 @@ import { AppError } from '../contracts.mjs';
 const execFile = promisify(execFileCallback);
 const MAX_RANGE_SECONDS = 366 * 24 * 3600;
 const DEFAULT_MAX_POINTS = 360;
+const ALL_AVAILABLE_MAX_ROWS = Math.ceil(MAX_RANGE_SECONDS / 60) + 2;
 const MAX_SERIES = 12;
 
 const resourceSpecs = new Map([
@@ -83,7 +84,8 @@ export class RrdSeriesProvider {
     if (!this.configured) throw new AppError(503, 'MONITORING_RRD_NOT_CONFIGURED', 'RRD 时序导出尚未配置');
     const safeHostname = safeSegment(hostname, 'hostname');
     const range = normalizeRange(from, to, this.clock());
-    const rows = boundedInteger(maxPoints, 60, 480, DEFAULT_MAX_POINTS);
+    const allAvailable = String(maxPoints ?? '').trim().toLowerCase() === 'all';
+    const rows = allAvailable ? ALL_AVAILABLE_MAX_ROWS : boundedInteger(maxPoints, 60, 480, DEFAULT_MAX_POINTS);
     const cacheKey = JSON.stringify([safeHostname, range.start, range.end, rows, definitions]);
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > this.clock()) return cached.value;
@@ -115,6 +117,8 @@ export class RrdSeriesProvider {
     const value = {
       id, title, unit, sampledAt: new Date(this.clock()).toISOString(), sampleMode: 'rrd-xport',
       range: { from: new Date(range.start * 1000).toISOString(), to: new Date(range.end * 1000).toISOString(), stepSeconds: step },
+      pointMode: allAvailable ? 'all-available' : 'bounded',
+      pointCount: parsed.data.length,
       series
     };
     this.cache.set(cacheKey, { expiresAt: this.clock() + this.cacheTtlMs, value });
@@ -123,7 +127,7 @@ export class RrdSeriesProvider {
 }
 
 async function runRrdTool(args) {
-  const { stdout } = await execFile('docker', args, { encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
+  const { stdout } = await execFile('docker', args, { encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   return stdout;
 }
 

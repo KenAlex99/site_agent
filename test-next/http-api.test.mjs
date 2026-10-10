@@ -14,7 +14,8 @@ function fakeProvider() {
     async health() { return { status: 'up', provider: this.descriptor }; },
     async listDevices() { return [{ id: '1', name: 'router-1', hostname: 'router-1', status: 'up' }, { id: '2', name: 'switch-1', hostname: 'switch-1', status: 'down' }]; },
     async listPorts() { return [{ id: '9', deviceId: '1', name: 'Gi0/1', status: 'up', rxBps: 1000, txBps: 2000 }]; },
-    async listAlerts() { return [{ id: 'a1', state: 'active', severity: 'critical', title: 'Device down' }]; }
+    async listAlerts() { return [{ id: 'a1', state: 'active', severity: 'critical', title: 'Device down' }]; },
+    async listAlertHistory(options) { return { items: [{ id: 'h1', deviceId: options.deviceId, description: 'Device recovered' }], page: Number(options.page), pageSize: Number(options.pageSize), total: 1 }; }
   };
 }
 
@@ -51,6 +52,13 @@ test('serves renderer-neutral traffic series', () => withServer(async (base) => 
 
 test('does not expose a database route', () => withServer(async (base) => {
   assert.equal((await fetch(`${base}/api/v1/monitoring/database`)).status, 404);
+}));
+
+test('serves paged read-only alert history', () => withServer(async (base) => {
+  const response = await fetch(`${base}/api/v1/monitoring/alert-history?from=2026-09-01T00%3A00%3A00Z&to=2026-09-16T00%3A00%3A00Z&page=2&pageSize=25&deviceId=7`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(body, { items: [{ id: 'h1', deviceId: '7', description: 'Device recovered' }], page: 2, pageSize: 25, total: 1 });
 }));
 
 test('does not allow static path traversal', () => withServer(async (base) => {

@@ -38,6 +38,10 @@ async function handleApi(service, res, url, requestId) {
   if (pathname === '/api/v1/monitoring/overview') return sendJson(res, 200, await service.overview());
   if (pathname === '/api/v1/monitoring/devices') return sendJson(res, 200, { items: await service.devices() });
   if (pathname === '/api/v1/monitoring/alerts') return sendJson(res, 200, { items: await service.alerts({ state: searchParams.get('state') || 'all', limit: searchParams.get('limit') || 50 }) });
+  if (pathname === '/api/v1/monitoring/alert-history') return sendJson(res, 200, await service.alertHistory({
+    from: searchParams.get('from'), to: searchParams.get('to'), page: searchParams.get('page') || 1,
+    pageSize: searchParams.get('pageSize') || 50, deviceId: searchParams.get('deviceId') || undefined
+  }));
   const portMatch = pathname.match(/^\/api\/v1\/monitoring\/devices\/([^/]+)\/ports$/);
   if (portMatch) return sendJson(res, 200, { items: await service.ports(decodeURIComponent(portMatch[1])) });
   if (pathname === '/api/v1/monitoring/series/port-traffic') return sendJson(res, 200, await service.portTrafficSeries(searchParams.get('deviceId'), searchParams.get('portId')));

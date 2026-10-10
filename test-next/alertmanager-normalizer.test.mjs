@@ -86,6 +86,21 @@ test('normalizes API v2 active, silenced and inhibited alerts into a complete sn
   assert.deepEqual(normalized.alerts.map((item) => item.labels.severity), ['warning', 'info', 'unknown']);
 });
 
+test('normalizes multiline LibreNMS annotations without weakening label validation', () => {
+  const description = `${'Device 1 is active\r\nStatus:\tdown\n'.repeat(100)}tail`;
+  const normalized = normalizeAlertmanagerWebhook(webhook({
+    alerts: [webhookAlert({ annotations: { summary: 'Real LibreNMS alert\nsummary', description } })]
+  }), { observedAt, deliveryId: 'delivery-librenms-01' });
+
+  assert.equal(normalized.alerts[0].annotations.summary, 'Real LibreNMS alert summary');
+  assert.equal(normalized.alerts[0].annotations.description.length, 2000);
+  assert.doesNotMatch(normalized.alerts[0].annotations.description, /[\r\n\t]/);
+  assert.throws(
+    () => normalizeAlertmanagerWebhook(webhook({ alerts: [webhookAlert({ labels: { alertname: 'Bad\nLabel' } })] }), { observedAt, deliveryId: 'delivery-librenms-02' }),
+    /control/
+  );
+});
+
 test('requires fingerprints, statuses and RFC3339 timestamps', () => {
   assert.throws(
     () => normalizeAlertmanagerWebhook(webhook({ alerts: [webhookAlert({ fingerprint: '' })] }), { observedAt, deliveryId: 'delivery-03' }),

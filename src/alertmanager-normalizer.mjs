@@ -12,6 +12,7 @@ const reviewedLabels = new Set([
 const reviewedAnnotations = new Set(['summary', 'description', 'runbook_url']);
 const sensitiveKey = /(authorization|community|credential|password|secret|token)/i;
 const controlCharacter = /[\u0000-\u001f\u007f]/u;
+const disallowedAnnotationControlCharacter = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
 export function normalizeAlertmanagerWebhook(input, { observedAt, deliveryId } = {}) {
   object(input, 'webhook');
@@ -67,11 +68,11 @@ function normalizedAlert({ input, path, status }) {
     fingerprint: identifier(input.fingerprint, `${path}.fingerprint`), status,
     startsAt: rfc3339(input.startsAt, `${path}.startsAt`), endsAt,
     labels,
-    annotations: reviewedMap(input.annotations ?? {}, `${path}.annotations`, reviewedAnnotations, 32, 2000, true)
+    annotations: reviewedMap(input.annotations ?? {}, `${path}.annotations`, reviewedAnnotations, 32, 2000, true, true)
   });
 }
 
-function reviewedMap(input, path, allowlist, maxEntries, maxLength, allowEmpty = false) {
+function reviewedMap(input, path, allowlist, maxEntries, maxLength, allowEmpty = false, normalizeText = false) {
   object(input, path);
   const entries = Object.entries(input);
   if (entries.length > maxEntries) invalid(`${path} must contain at most ${maxEntries} entries`);
@@ -79,7 +80,9 @@ function reviewedMap(input, path, allowlist, maxEntries, maxLength, allowEmpty =
   for (const [key, value] of entries) {
     if (sensitiveKey.test(key)) invalid(`${path}.${key} is sensitive and cannot be forwarded`);
     if (!allowlist.has(key)) continue;
-    result[key] = boundedString(value, `${path}.${key}`, maxLength);
+    result[key] = normalizeText
+      ? normalizedText(value, `${path}.${key}`, maxLength)
+      : boundedString(value, `${path}.${key}`, maxLength);
   }
   if (!allowEmpty && Object.keys(result).length === 0) invalid(`${path} does not contain reviewed labels`);
   return result;
@@ -123,6 +126,14 @@ function boundedString(value, path, max) {
   if (typeof value !== 'string' || value.length === 0 || value.length > max) invalid(`${path} is invalid`);
   if (controlCharacter.test(value)) invalid(`${path} contains a control character`);
   return value;
+}
+
+function normalizedText(value, path, max) {
+  if (typeof value !== 'string' || value.length === 0) invalid(`${path} is invalid`);
+  if (disallowedAnnotationControlCharacter.test(value)) invalid(`${path} contains a control character`);
+  const normalized = value.replace(/[\t\r\n]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+  if (!normalized) invalid(`${path} is invalid`);
+  return normalized.slice(0, max);
 }
 
 function identifier(value, path) {
