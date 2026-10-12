@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { normalizeUplinkEnvelope } from '../src/uplink-contracts.mjs';
 
 const edgeId = 'center-issued-edge-opaque-01';
@@ -94,6 +95,12 @@ test('requires a plain JSON payload and rejects oversized envelopes', () => {
     ...envelope({ asset_id: assetId }),
     payload: { text: 'x'.repeat(256 * 1024) }
   }, { edgeId }, '256 KiB');
+});
+
+test('keeps both Uplink foundation modules in the project syntax gate', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(packageJson.scripts.check, /node --check src\/uplink-config\.mjs/);
+  assert.match(packageJson.scripts.check, /node --check src\/uplink-contracts\.mjs/);
 });
 
 function envelope(extra = {}) {
