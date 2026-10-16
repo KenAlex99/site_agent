@@ -1,5 +1,6 @@
 import { AppError, finiteNumber, isoTime, normalizeSeverity, normalizeState, requireIdentifier } from '../contracts.mjs';
 import { LibreNmsProvider as BaseLibreNmsProvider } from './librenms-provider.mjs';
+import { LibreNmsCapacityProvider } from './librenms-capacity-provider.mjs';
 
 const rankingPortColumns = [
   'port_id', 'device_id', 'ifName', 'ifDescr', 'ifAlias', 'ifOperStatus', 'ifAdminStatus',
@@ -14,6 +15,13 @@ export class LibreNmsProvider extends BaseLibreNmsProvider {
   constructor(options) {
     super(options);
     this.rrdSeries = options?.rrdSeries || null;
+    this.capacitySourceProfile = options?.capacitySourceProfile ?? null;
+  }
+
+  getDeviceCapacityPage(deviceId, resourceType, options = {}) {
+    return new LibreNmsCapacityProvider({ baseUrl: this.baseUrl, token: this.token,
+      timeoutMs: Math.min(this.timeoutMs, 10000), fetchImpl: this.fetchImpl,
+      sourceProfile: this.capacitySourceProfile }).readResourcePage(deviceId, resourceType, options);
   }
 
   async listAllPorts() {
